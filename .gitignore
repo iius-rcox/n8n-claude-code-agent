@@ -28,6 +28,7 @@ azure.json
 kubeconfig
 *.kubeconfig
 .kube/
+claude-session-secret.yaml
 
 # IDE and editors
 .vscode/
