@@ -1,0 +1,31 @@
+# Docker ignore file for Claude Agent container build
+# Excludes files not needed in the container image
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Documentation (not needed in container)
+*.md
+!README.md
+
+# Local development
+.env
+.env.*
+
+# Logs
+*.log
+
+# Test files
+tests/
+__tests__/
+*.test.js
+*.spec.js
+
+# Windows specific
+Thumbs.db
+Desktop.ini

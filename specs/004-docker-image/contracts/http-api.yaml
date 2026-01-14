@@ -1,0 +1,220 @@
+openapi: 3.0.3
+info:
+  title: Claude Agent HTTP API
+  description: |
+    HTTP API for the Claude Code Agent container.
+    This API enables n8n workflows to invoke Claude prompts and monitor agent health.
+  version: 1.0.0
+  contact:
+    name: II-US DevOps
+
+servers:
+  - url: http://claude-agent.claude-agent.svc.cluster.local:3000
+    description: Kubernetes ClusterIP service (internal only)
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      description: |
+        Returns the current health status of the agent.
+        During graceful shutdown, returns 503 with status "shutting_down".
+      operationId: getHealth
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Agent is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: healthy
+                timestamp: "2026-01-14T10:30:00Z"
+                activeRequests: 0
+        '503':
+          description: Agent is shutting down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: shutting_down
+                timestamp: "2026-01-14T10:30:00Z"
+                activeRequests: 2
+
+  /run:
+    post:
+      summary: Execute Claude prompt
+      description: |
+        Sends a prompt to Claude CLI and returns the response.
+        Uses synchronous execution (spawnSync) to prevent exit code 143.
+
+        Exit codes in response:
+        - 0: Success
+        - 1: General error
+        - 57: Authentication failure (session expired)
+        - 124: Timeout
+      operationId: runPrompt
+      tags:
+        - Execution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunRequest'
+            examples:
+              simple:
+                summary: Simple prompt
+                value:
+                  prompt: "Say hello"
+              withTimeout:
+                summary: Prompt with custom timeout
+                value:
+                  prompt: "Analyze this codebase"
+                  timeout: 120000
+              withWorkdir:
+                summary: Prompt with working directory
+                value:
+                  prompt: "List files in this directory"
+                  workdir: "/workspace/project"
+      responses:
+        '200':
+          description: Prompt executed (check success field for result)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunResponse'
+              examples:
+                success:
+                  summary: Successful execution
+                  value:
+                    success: true
+                    output: "Hello! How can I help you today?"
+                    exitCode: 0
+                    duration: 1523
+                authFailure:
+                  summary: Authentication failure
+                  value:
+                    success: false
+                    output: ""
+                    exitCode: 57
+                    duration: 1200
+                    error: "Authentication failed - session tokens expired"
+                timeout:
+                  summary: Execution timeout
+                  value:
+                    success: false
+                    output: ""
+                    exitCode: 124
+                    duration: 300000
+                    error: "Execution timed out after 300000ms"
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "prompt is required"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Failed to spawn Claude process"
+        '503':
+          description: Server is shutting down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error: "Server is shutting down"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+        - activeRequests
+      properties:
+        status:
+          type: string
+          enum: [healthy, shutting_down]
+          description: Current server status
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the response
+        activeRequests:
+          type: integer
+          minimum: 0
+          description: Number of currently processing requests
+
+    RunRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: The prompt text to send to Claude
+        timeout:
+          type: integer
+          minimum: 1
+          maximum: 600000
+          default: 300000
+          description: Timeout in milliseconds (default 5 minutes, max 10 minutes)
+        workdir:
+          type: string
+          pattern: ^/.*
+          description: Working directory for Claude execution (must be absolute path)
+
+    RunResponse:
+      type: object
+      required:
+        - success
+        - output
+        - exitCode
+        - duration
+      properties:
+        success:
+          type: boolean
+          description: Whether the prompt completed successfully
+        output:
+          type: string
+          description: Claude's response output (may be empty on error)
+        exitCode:
+          type: integer
+          description: Process exit code (0=success, 57=auth failure, 124=timeout)
+        duration:
+          type: integer
+          minimum: 0
+          description: Execution time in milliseconds
+        error:
+          type: string
+          description: Error message (only present when success=false)
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message describing what went wrong
+
+tags:
+  - name: Health
+    description: Health monitoring endpoints
+  - name: Execution
+    description: Claude prompt execution endpoints
