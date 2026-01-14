@@ -1,0 +1,20 @@
+# Namespace and ServiceAccount for Claude Code Agent
+# Feature: 005-kubernetes-deployment
+# User Story: US1 - Namespace and Service Account Configuration
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: claude-agent
+  labels:
+    app: claude-code-agent
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: claude-agent-sa
+  namespace: claude-agent
+  annotations:
+    azure.workload.identity/client-id: "866b8e62-d9ce-42d1-a6b0-4382baf39f7a"
+  labels:
+    azure.workload.identity/use: "true"

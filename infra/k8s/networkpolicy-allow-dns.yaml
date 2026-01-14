@@ -1,0 +1,27 @@
+# NetworkPolicy: Allow DNS
+# Feature: 005-kubernetes-deployment
+# User Story: US2 - Network Security with NetworkPolicies
+# Purpose: Permit DNS resolution via kube-dns on UDP/TCP 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: claude-agent
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

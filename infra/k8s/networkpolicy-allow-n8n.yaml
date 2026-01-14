@@ -1,0 +1,27 @@
+# NetworkPolicy: Allow n8n Ingress
+# Feature: 005-kubernetes-deployment
+# User Story: US2 - Network Security with NetworkPolicies
+# Purpose: Permit HTTP traffic from n8n pods in n8n-prod namespace on TCP 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-n8n
+  namespace: claude-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: claude-code-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: n8n-prod
+          podSelector:
+            matchLabels:
+              app: n8n
+      ports:
+        - protocol: TCP
+          port: 3000
