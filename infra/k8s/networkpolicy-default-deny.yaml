@@ -1,0 +1,15 @@
+# NetworkPolicy: Default Deny All
+# Feature: 005-kubernetes-deployment
+# User Story: US2 - Network Security with NetworkPolicies
+# Purpose: Block all ingress and egress by default for pods in namespace
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: claude-agent
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

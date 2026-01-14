@@ -1,0 +1,146 @@
+# Deployment: Claude Code Agent
+# Feature: 005-kubernetes-deployment
+# User Story: US4 - Deployment with Security Hardening
+# Purpose: Deploy Claude agent container with full security hardening
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claude-code-agent
+  namespace: claude-agent
+  labels:
+    app: claude-code-agent
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: claude-code-agent
+  template:
+    metadata:
+      labels:
+        app: claude-code-agent
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: claude-agent-sa
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      initContainers:
+        - name: copy-claude-session
+          image: busybox:1.36
+          command: ['sh', '-c', 'cp -r /claude-session-ro/. /home/claude-agent/.claude/']
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          volumeMounts:
+            - name: claude-session
+              mountPath: /claude-session-ro
+              readOnly: true
+            - name: claude-home
+              mountPath: /home/claude-agent/.claude
+
+      containers:
+        - name: claude-agent
+          image: iiusacr.azurecr.io/claude-agent:v4.6.2
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              memory: "1Gi"
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: TEAMS_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: teams-webhook
+                  key: url
+
+          volumeMounts:
+            - name: claude-home
+              mountPath: /home/claude-agent/.claude
+            - name: azure-home
+              mountPath: /home/claude-agent/.azure
+            - name: tmp
+              mountPath: /tmp
+            - name: workspace
+              mountPath: /workspace
+            - name: github-secrets
+              mountPath: /secrets/github
+              readOnly: true
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 10"]
+
+      volumes:
+        - name: claude-session
+          secret:
+            secretName: claude-session
+        - name: claude-home
+          emptyDir: {}
+        - name: azure-home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: workspace
+          emptyDir: {}
+        - name: github-secrets
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: github-app-akv
