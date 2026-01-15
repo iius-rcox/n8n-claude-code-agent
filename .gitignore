@@ -57,6 +57,7 @@ yarn-error.log*
 coverage/
 .nyc_output/
 *.lcov
+tests/scripts/test_helper/bats-*/
 
 # Temporary files
 tmp/
