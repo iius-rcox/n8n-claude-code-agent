@@ -27,6 +27,9 @@ const SHUTDOWN_GRACE_PERIOD = 120000; // 120 seconds
 let activeRequests = 0;
 let isShuttingDown = false;
 
+// Test mode - disable process.exit calls
+const isTestMode = process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
+
 /**
  * Parse JSON request body
  */
@@ -203,7 +206,7 @@ async function handleRequest(req, res) {
     activeRequests--;
 
     // Check if we can exit during shutdown
-    if (isShuttingDown && activeRequests === 0) {
+    if (isShuttingDown && activeRequests === 0 && !isTestMode) {
       console.log('All requests completed, exiting');
       process.exit(0);
     }
@@ -224,28 +227,56 @@ function gracefulShutdown(signal) {
   });
 
   // Exit immediately if no active requests
-  if (activeRequests === 0) {
+  if (activeRequests === 0 && !isTestMode) {
     console.log('No active requests, exiting immediately');
     process.exit(0);
   }
 
   console.log(`Waiting for ${activeRequests} active request(s) to complete...`);
 
-  // Force exit after grace period
-  setTimeout(() => {
-    console.log('Grace period expired, forcing exit');
-    process.exit(1);
-  }, SHUTDOWN_GRACE_PERIOD);
+  // Force exit after grace period (skip in test mode)
+  if (!isTestMode) {
+    setTimeout(() => {
+      console.log('Grace period expired, forcing exit');
+      process.exit(1);
+    }, SHUTDOWN_GRACE_PERIOD);
+  }
 }
 
 // Register signal handlers
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-// Start server
-server.listen(PORT, HOST, () => {
-  console.log(`Claude Code Agent HTTP server listening on ${HOST}:${PORT}`);
-  console.log('Endpoints:');
-  console.log('  GET  /health - Health check');
-  console.log('  POST /run    - Execute Claude prompt');
-});
+// Start server only when run directly (not when imported for testing)
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`Claude Code Agent HTTP server listening on ${HOST}:${PORT}`);
+    console.log('Endpoints:');
+    console.log('  GET  /health - Health check');
+    console.log('  POST /run    - Execute Claude prompt');
+  });
+}
+
+// Export for testing
+module.exports = {
+  server,
+  handleRequest,
+  handleHealth,
+  handleRun,
+  parseBody,
+  sendJson,
+  gracefulShutdown,
+  // Export state accessors for testing
+  getServerState: () => ({ activeRequests, isShuttingDown }),
+  setShuttingDown: (value) => { isShuttingDown = value; },
+  resetState: () => { activeRequests = 0; isShuttingDown = false; },
+  // Export constants for testing
+  constants: {
+    PORT,
+    HOST,
+    DEFAULT_TIMEOUT,
+    MAX_TIMEOUT,
+    MAX_PROMPT_LENGTH,
+    SHUTDOWN_GRACE_PERIOD
+  }
+};
