@@ -1,0 +1,129 @@
+{
+  "healthEndpoint": {
+    "healthy": {
+      "statusCode": 200,
+      "body": {
+        "status": "healthy",
+        "activeRequests": 0
+      }
+    },
+    "shuttingDown": {
+      "statusCode": 503,
+      "body": {
+        "status": "shutting_down"
+      }
+    }
+  },
+  "runEndpoint": {
+    "validPromptSuccess": {
+      "mockSpawnSync": {
+        "status": 0,
+        "stdout": "Claude response output",
+        "stderr": ""
+      },
+      "expectedResponse": {
+        "statusCode": 200,
+        "body": {
+          "success": true,
+          "exitCode": 0
+        }
+      }
+    },
+    "missingPrompt": {
+      "expectedResponse": {
+        "statusCode": 400,
+        "body": {
+          "error": "prompt is required"
+        }
+      }
+    },
+    "oversizedPrompt": {
+      "expectedResponse": {
+        "statusCode": 400,
+        "body": {
+          "error": "prompt exceeds maximum length"
+        }
+      }
+    },
+    "authFailure": {
+      "mockSpawnSync": {
+        "status": 57,
+        "stdout": "",
+        "stderr": "Authentication failed"
+      },
+      "expectedResponse": {
+        "statusCode": 200,
+        "body": {
+          "success": false,
+          "exitCode": 57,
+          "error": "Authentication failed - session tokens expired"
+        }
+      }
+    },
+    "timeout": {
+      "mockSpawnSync": {
+        "signal": "SIGTERM",
+        "error": {
+          "code": "ETIMEDOUT"
+        }
+      },
+      "expectedResponse": {
+        "statusCode": 200,
+        "body": {
+          "success": false,
+          "exitCode": 124
+        }
+      }
+    },
+    "invalidTimeout": {
+      "expectedResponse": {
+        "statusCode": 400,
+        "body": {
+          "error": "timeout must be positive integer"
+        }
+      }
+    },
+    "timeoutExceedsMax": {
+      "expectedResponse": {
+        "statusCode": 400,
+        "body": {
+          "error": "timeout exceeds maximum"
+        }
+      }
+    },
+    "invalidWorkdir": {
+      "expectedResponse": {
+        "statusCode": 400,
+        "body": {
+          "error": "workdir must be absolute path"
+        }
+      }
+    }
+  },
+  "errorCases": {
+    "notFound": {
+      "expectedResponse": {
+        "statusCode": 404,
+        "body": {
+          "error": "Not found"
+        }
+      }
+    },
+    "invalidJson": {
+      "expectedResponse": {
+        "statusCode": 400,
+        "body": {
+          "error": "Invalid JSON"
+        }
+      }
+    },
+    "shutdownRejection": {
+      "expectedResponse": {
+        "statusCode": 503,
+        "body": {
+          "error": "Server is shutting down"
+        }
+      }
+    }
+  }
+}

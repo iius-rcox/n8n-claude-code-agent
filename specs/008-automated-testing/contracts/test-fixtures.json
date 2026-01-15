@@ -1,0 +1,252 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Test Fixtures",
+  "description": "Test fixture definitions for HTTP server unit tests",
+  "fixtures": {
+    "health-endpoint": [
+      {
+        "name": "health-check-healthy",
+        "description": "Health endpoint returns 200 when healthy",
+        "request": {
+          "method": "GET",
+          "url": "/health"
+        },
+        "expectedResponse": {
+          "statusCode": 200,
+          "body": {
+            "status": "healthy",
+            "activeRequests": 0
+          }
+        }
+      },
+      {
+        "name": "health-check-shutting-down",
+        "description": "Health endpoint returns 503 during shutdown",
+        "serverState": {
+          "isShuttingDown": true
+        },
+        "request": {
+          "method": "GET",
+          "url": "/health"
+        },
+        "expectedResponse": {
+          "statusCode": 503,
+          "body": {
+            "status": "shutting_down"
+          }
+        }
+      }
+    ],
+    "run-endpoint": [
+      {
+        "name": "run-valid-prompt-success",
+        "description": "Valid prompt returns successful response",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test prompt"
+          }
+        },
+        "mockSpawnSync": {
+          "status": 0,
+          "stdout": "Claude response output",
+          "stderr": ""
+        },
+        "expectedResponse": {
+          "statusCode": 200,
+          "body": {
+            "success": true,
+            "exitCode": 0
+          }
+        }
+      },
+      {
+        "name": "run-missing-prompt",
+        "description": "Missing prompt returns 400",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {}
+        },
+        "expectedResponse": {
+          "statusCode": 400,
+          "body": {
+            "error": "prompt is required"
+          }
+        }
+      },
+      {
+        "name": "run-oversized-prompt",
+        "description": "Oversized prompt returns 400",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "{{GENERATE_100KB_STRING}}"
+          }
+        },
+        "expectedResponse": {
+          "statusCode": 400,
+          "body": {
+            "error": "prompt exceeds maximum length"
+          }
+        }
+      },
+      {
+        "name": "run-auth-failure",
+        "description": "Auth failure returns exitCode 57",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test prompt"
+          }
+        },
+        "mockSpawnSync": {
+          "status": 57,
+          "stdout": "",
+          "stderr": "Authentication failed"
+        },
+        "expectedResponse": {
+          "statusCode": 200,
+          "body": {
+            "success": false,
+            "exitCode": 57,
+            "error": "Authentication failed - session tokens expired"
+          }
+        }
+      },
+      {
+        "name": "run-timeout",
+        "description": "Timeout returns exitCode 124",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test prompt",
+            "timeout": 1000
+          }
+        },
+        "mockSpawnSync": {
+          "signal": "SIGTERM",
+          "error": {
+            "code": "ETIMEDOUT"
+          }
+        },
+        "expectedResponse": {
+          "statusCode": 200,
+          "body": {
+            "success": false,
+            "exitCode": 124
+          }
+        }
+      },
+      {
+        "name": "run-invalid-timeout",
+        "description": "Invalid timeout returns 400",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test",
+            "timeout": -1
+          }
+        },
+        "expectedResponse": {
+          "statusCode": 400,
+          "body": {
+            "error": "timeout must be positive integer"
+          }
+        }
+      },
+      {
+        "name": "run-timeout-exceeds-max",
+        "description": "Timeout exceeding max returns 400",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test",
+            "timeout": 999999999
+          }
+        },
+        "expectedResponse": {
+          "statusCode": 400,
+          "body": {
+            "error": "timeout exceeds maximum"
+          }
+        }
+      },
+      {
+        "name": "run-invalid-workdir",
+        "description": "Relative workdir returns 400",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test",
+            "workdir": "relative/path"
+          }
+        },
+        "expectedResponse": {
+          "statusCode": 400,
+          "body": {
+            "error": "workdir must be absolute path"
+          }
+        }
+      }
+    ],
+    "error-cases": [
+      {
+        "name": "404-not-found",
+        "description": "Unknown endpoint returns 404",
+        "request": {
+          "method": "GET",
+          "url": "/unknown"
+        },
+        "expectedResponse": {
+          "statusCode": 404,
+          "body": {
+            "error": "Not found"
+          }
+        }
+      },
+      {
+        "name": "invalid-json",
+        "description": "Invalid JSON returns 400",
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "rawBody": "not valid json"
+        },
+        "expectedResponse": {
+          "statusCode": 400,
+          "body": {
+            "error": "Invalid JSON"
+          }
+        }
+      },
+      {
+        "name": "shutdown-rejects-new-requests",
+        "description": "New requests rejected during shutdown",
+        "serverState": {
+          "isShuttingDown": true
+        },
+        "request": {
+          "method": "POST",
+          "url": "/run",
+          "body": {
+            "prompt": "test"
+          }
+        },
+        "expectedResponse": {
+          "statusCode": 503,
+          "body": {
+            "error": "Server is shutting down"
+          }
+        }
+      }
+    ]
+  }
+}

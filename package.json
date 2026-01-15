@@ -1,0 +1,30 @@
+{
+  "name": "n8n-claude-code-agent",
+  "version": "4.6.4",
+  "description": "Claude Code Agent for n8n workflow automation",
+  "main": "infra/docker/server.js",
+  "scripts": {
+    "test": "jest --coverage",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:unit": "jest tests/unit/",
+    "test:integration": "jest tests/integration/",
+    "test:scripts": "bats tests/scripts/",
+    "test:all": "npm run test && npm run test:scripts"
+  },
+  "keywords": [
+    "claude",
+    "n8n",
+    "automation",
+    "agent"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
