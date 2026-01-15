@@ -1,6 +1,7 @@
 # Claude Code Agent Container Image
-# Version: v4.6.2
+# Version: v4.6.3
 # Base: Ubuntu 24.04 LTS
+# Change: Moved server files to /opt/claude-agent/ to allow /home/claude-agent emptyDir mount
 
 FROM ubuntu:24.04
 
@@ -48,23 +49,25 @@ RUN groupadd -g 1001 claude-agent \
 # Create directories for session data and workspace
 RUN mkdir -p /home/claude-agent/.claude \
     && mkdir -p /workspace \
+    && mkdir -p /opt/claude-agent \
     && chown -R 1001:1001 /home/claude-agent \
-    && chown -R 1001:1001 /workspace
+    && chown -R 1001:1001 /workspace \
+    && chown -R 1001:1001 /opt/claude-agent
 
-# Copy HTTP server script
-COPY server.js /home/claude-agent/server.js
+# Copy HTTP server script to /opt (not /home, which will be mounted as emptyDir)
+COPY server.js /opt/claude-agent/server.js
 
 # Copy authentication monitoring scripts
-COPY check-auth.sh /home/claude-agent/check-auth.sh
-COPY notify.sh /home/claude-agent/notify.sh
-RUN chmod +x /home/claude-agent/check-auth.sh /home/claude-agent/notify.sh
+COPY check-auth.sh /opt/claude-agent/check-auth.sh
+COPY notify.sh /opt/claude-agent/notify.sh
+RUN chmod +x /opt/claude-agent/check-auth.sh /opt/claude-agent/notify.sh
 
 # Switch to non-root user
 USER claude-agent
-WORKDIR /home/claude-agent
+WORKDIR /workspace
 
 # Expose HTTP server port
 EXPOSE 3000
 
-# Start HTTP server
-ENTRYPOINT ["node", "/home/claude-agent/server.js"]
+# Start HTTP server (from /opt, not /home which is mounted as emptyDir)
+ENTRYPOINT ["node", "/opt/claude-agent/server.js"]

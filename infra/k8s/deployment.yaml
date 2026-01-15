@@ -55,11 +55,11 @@ spec:
               mountPath: /claude-session-ro
               readOnly: true
             - name: claude-home
-              mountPath: /home/claude-agent/.claude
+              mountPath: /home/claude-agent
 
       containers:
         - name: claude-agent
-          image: iiusacr.azurecr.io/claude-agent:v4.6.2
+          image: iiusacr.azurecr.io/claude-agent:v4.6.3
           ports:
             - name: http
               containerPort: 3000
@@ -92,7 +92,7 @@ spec:
 
           volumeMounts:
             - name: claude-home
-              mountPath: /home/claude-agent/.claude
+              mountPath: /home/claude-agent
             - name: azure-home
               mountPath: /home/claude-agent/.azure
             - name: tmp
