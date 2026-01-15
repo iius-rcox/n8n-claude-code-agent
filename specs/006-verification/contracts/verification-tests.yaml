@@ -1,0 +1,120 @@
+# Verification Test Contracts
+# Feature: 006-verification
+# Purpose: Define expected inputs and outputs for each verification test
+
+---
+# Test T037: Azure Workload Identity Verification
+test_azure_identity:
+  id: T037
+  name: "Azure Workload Identity"
+  category: US1-Azure
+  subtests:
+    - id: T037a
+      name: "Identity Login"
+      command: "az login --identity --allow-no-subscriptions"
+      expected_output_contains:
+        - "environmentName"
+        - "id"
+        - "isDefault"
+      timeout_seconds: 30
+
+    - id: T037b
+      name: "Storage Container List"
+      command: "az storage container list --account-name iiusagentstore --auth-mode login --query '[].name' -o tsv"
+      expected_output_contains:
+        - "agent-state"
+        - "agent-spec"
+        - "agent-plan"
+        - "agent-verification"
+        - "agent-review"
+        - "agent-release"
+      expected_count: 6
+      timeout_seconds: 30
+
+---
+# Test T038: Claude Authentication Verification
+test_claude_auth:
+  id: T038
+  name: "Claude Authentication"
+  category: US2-Claude
+  command: "claude -p \"Say 'Claude Max auth working'\""
+  expected_output_contains:
+    - "Claude Max auth working"
+  expected_output_not_contains:
+    - "error"
+    - "unauthorized"
+    - "expired"
+  timeout_seconds: 60
+
+---
+# Test T039: GitHub CSI Secrets Verification
+test_github_csi:
+  id: T039
+  name: "GitHub CSI Secrets"
+  category: US3-GitHub
+  subtests:
+    - id: T039a
+      name: "Secrets Directory Listing"
+      command: "ls -la /secrets/github/"
+      expected_output_contains:
+        - "app-id"
+        - "private-key.pem"
+      timeout_seconds: 10
+
+    - id: T039b
+      name: "App ID Content"
+      command: "cat /secrets/github/app-id"
+      expected_output_pattern: "^[0-9]+$"  # Numeric App ID
+      expected_value: "2658380"  # Known App ID from Sprint 2
+      timeout_seconds: 10
+
+---
+# Test T040: NetworkPolicy Verification
+test_networkpolicy:
+  id: T040
+  name: "NetworkPolicies"
+  category: US4-NetworkPolicy
+  subtests:
+    - id: T040a
+      name: "Policy Count"
+      command: "kubectl get networkpolicy -n claude-agent --no-headers | wc -l"
+      expected_value: "4"
+      policies_expected:
+        - "default-deny-all"
+        - "allow-dns"
+        - "allow-azure-egress"
+        - "allow-ingress-from-n8n"
+      timeout_seconds: 10
+
+    - id: T040b
+      name: "DNS Resolution"
+      command: "getent hosts iiusagentstore.blob.core.windows.net"
+      expected_output_pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+.*blob.*"
+      timeout_seconds: 10
+
+---
+# Test T041: HTTP Health Endpoint Verification
+test_http_health:
+  id: T041
+  name: "HTTP Health Endpoint"
+  category: US5-Health
+  command: "curl -s http://localhost:3000/health"
+  expected_output_json:
+    status: "healthy"
+  expected_output_contains:
+    - "timestamp"
+    - "activeRequests"
+  response_time_max_ms: 1000
+  timeout_seconds: 10
+
+---
+# Summary Contract
+verification_summary:
+  total_tests: 5
+  total_subtests: 8
+  pass_criteria: "All tests must pass"
+  output_format: "JSON with test results"
+  exit_codes:
+    all_pass: 0
+    any_fail: 1
+    execution_error: 2
