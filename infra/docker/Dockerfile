@@ -1,5 +1,5 @@
 # Claude Code Agent Container Image
-# Version: v4.6.3
+# Version: v4.6.4
 # Base: Ubuntu 24.04 LTS
 # Change: Moved server files to /opt/claude-agent/ to allow /home/claude-agent emptyDir mount
 
@@ -8,7 +8,7 @@ FROM ubuntu:24.04
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install base packages
+# Install base packages (including dos2unix for line ending conversion)
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     jq \
     wget \
     lsb-release \
+    dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Azure CLI
@@ -57,10 +58,11 @@ RUN mkdir -p /home/claude-agent/.claude \
 # Copy HTTP server script to /opt (not /home, which will be mounted as emptyDir)
 COPY server.js /opt/claude-agent/server.js
 
-# Copy authentication monitoring scripts
+# Copy authentication monitoring scripts and ensure Unix line endings
 COPY check-auth.sh /opt/claude-agent/check-auth.sh
 COPY notify.sh /opt/claude-agent/notify.sh
-RUN chmod +x /opt/claude-agent/check-auth.sh /opt/claude-agent/notify.sh
+RUN dos2unix /opt/claude-agent/check-auth.sh /opt/claude-agent/notify.sh \
+    && chmod +x /opt/claude-agent/check-auth.sh /opt/claude-agent/notify.sh
 
 # Switch to non-root user
 USER claude-agent
