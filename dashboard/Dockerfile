@@ -6,6 +6,10 @@ ARG VERSION=0.0.0
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-builder
 
+# Azure AD config for MSAL (required at build time)
+ARG VITE_AZURE_AD_TENANT_ID
+ARG VITE_AZURE_AD_CLIENT_ID
+
 WORKDIR /app/frontend
 
 COPY frontend/package*.json ./

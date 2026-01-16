@@ -7,7 +7,7 @@ export function setMsalInstance(instance: IPublicClientApplication) {
   msalInstance = instance;
 }
 
-async function getAccessToken(): Promise<string> {
+async function getIdToken(): Promise<string> {
   if (!msalInstance) {
     throw new Error('MSAL instance not initialized');
   }
@@ -22,16 +22,17 @@ async function getAccessToken(): Promise<string> {
       ...loginRequest,
       account: accounts[0],
     });
-    return response.accessToken;
+    // Use ID token for API calls - access token is a Microsoft Graph opaque token
+    return response.idToken;
   } catch (error) {
     // Silent token acquisition failed, try interactive
     const response = await msalInstance.acquireTokenPopup(loginRequest);
-    return response.accessToken;
+    return response.idToken;
   }
 }
 
 async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = await getAccessToken();
+  const token = await getIdToken();
 
   const headers = new Headers(options.headers);
   headers.set('Authorization', `Bearer ${token}`);

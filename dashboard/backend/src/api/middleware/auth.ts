@@ -9,7 +9,10 @@ interface AzureAdTokenClaims {
   iss: string;
   sub: string;
   oid: string;
+  appid?: string;  // App ID that requested the token (v1.0 tokens)
+  azp?: string;    // Authorized party (v2.0 tokens)
   preferred_username?: string;
+  upn?: string;    // User principal name (v1.0 tokens)
   name?: string;
   groups?: string[];
   _claim_names?: { groups?: string };
@@ -32,6 +35,7 @@ declare global {
 }
 
 export function createAuthMiddleware(config: Config) {
+  // Use v2.0 endpoint for ID token validation
   const jwksClient = jwksRsa({
     cache: true,
     rateLimit: true,
@@ -69,16 +73,21 @@ export function createAuthMiddleware(config: Config) {
 
       const token = authHeader.substring(7);
 
+      // ID tokens have our client ID as audience
+      const validAudience = config.azureAd.clientId;
+      // ID tokens from v2.0 endpoint
+      const validIssuer = `https://login.microsoftonline.com/${config.azureAd.tenantId}/v2.0`;
+
       const decoded = await new Promise<AzureAdTokenClaims>((resolve, reject) => {
         jwt.verify(
           token,
           getSigningKey,
           {
-            audience: config.azureAd.clientId,
-            issuer: `https://login.microsoftonline.com/${config.azureAd.tenantId}/v2.0`,
+            audience: validAudience,
+            issuer: validIssuer,
             algorithms: ['RS256'],
           },
-          (err, decoded) => {
+          (err: jwt.VerifyErrors | null, decoded: jwt.JwtPayload | string | undefined) => {
             if (err) {
               reject(err);
             } else {
@@ -101,24 +110,30 @@ export function createAuthMiddleware(config: Config) {
         console.warn('Group claim overage detected. User may need Graph API lookup.');
       }
 
+      // Handle both v1.0 (upn) and v2.0 (preferred_username) token formats
+      const email = decoded.preferred_username || decoded.upn || '';
+
       req.user = {
         id: decoded.oid,
-        email: decoded.preferred_username || '',
-        displayName: decoded.name || decoded.preferred_username || 'Unknown',
+        email,
+        displayName: decoded.name || email || 'Unknown',
         groups,
         isAuthorized,
       };
 
       next();
     } catch (error) {
+      // Log the actual error for debugging
+      console.error('Auth error:', error);
+
       if (error instanceof UnauthorizedError || error instanceof ForbiddenError) {
         next(error);
       } else if (error instanceof jwt.JsonWebTokenError) {
-        next(new UnauthorizedError('Invalid token'));
+        next(new UnauthorizedError(`Invalid token: ${error.message}`));
       } else if (error instanceof jwt.TokenExpiredError) {
         next(new UnauthorizedError('Token expired'));
       } else {
-        next(new UnauthorizedError('Authentication failed'));
+        next(new UnauthorizedError(`Authentication failed: ${error instanceof Error ? error.message : 'unknown'}`));
       }
     }
   };

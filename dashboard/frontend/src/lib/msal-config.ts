@@ -41,7 +41,7 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest = {
-  scopes: [`api://${clientId}/access_as_user`],
+  scopes: ['openid', 'profile', 'email'],
 };
 
 export const authorizedGroupId = import.meta.env.VITE_AUTHORIZED_GROUP_ID || '';

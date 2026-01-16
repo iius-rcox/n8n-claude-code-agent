@@ -14,12 +14,8 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const { instance, accounts, inProgress } = useMsal();
   const isAuthenticated = useIsAuthenticated();
 
-  const handleLogin = async () => {
-    try {
-      await instance.loginPopup(loginRequest);
-    } catch (error) {
-      console.error('Login failed:', error);
-    }
+  const handleLogin = () => {
+    instance.loginRedirect(loginRequest);
   };
 
   // Show loading while MSAL is working
