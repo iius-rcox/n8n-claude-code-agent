@@ -89,10 +89,13 @@ export function createAuthMiddleware(config: Config) {
       });
 
       const groups = decoded.groups || [];
-      const isAuthorized = groups.includes(config.azureAd.authorizedGroupId);
+      // If no authorized group is configured, all authenticated users are authorized
+      const isAuthorized = config.azureAd.authorizedGroupId
+        ? groups.includes(config.azureAd.authorizedGroupId)
+        : true;
 
       // Check for group claim overage (>200 groups)
-      if (decoded._claim_names?.groups && !isAuthorized) {
+      if (decoded._claim_names?.groups && !isAuthorized && config.azureAd.authorizedGroupId) {
         // In production, you would call Microsoft Graph API here
         // to fetch full group membership. For now, we reject.
         console.warn('Group claim overage detected. User may need Graph API lookup.');

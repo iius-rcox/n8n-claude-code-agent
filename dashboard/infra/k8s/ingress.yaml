@@ -4,17 +4,15 @@ metadata:
   name: ops-dashboard
   namespace: ops-dashboard
   annotations:
-    kubernetes.io/ingress.class: nginx
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
     cert-manager.io/cluster-issuer: letsencrypt-prod
 spec:
+  ingressClassName: webapprouting.kubernetes.azure.com
   tls:
     - hosts:
-        - dashboard.ii-us.com
+        - ops-dashboard.ii-us.com
       secretName: ops-dashboard-tls
   rules:
-    - host: dashboard.ii-us.com
+    - host: ops-dashboard.ii-us.com
       http:
         paths:
           - path: /

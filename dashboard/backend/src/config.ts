@@ -3,7 +3,7 @@ export interface Config {
   azureAd: {
     tenantId: string;
     clientId: string;
-    authorizedGroupId: string;
+    authorizedGroupId?: string;
   };
   claudeAgent: {
     namespace: string;
@@ -30,13 +30,13 @@ export function loadConfig(): Config {
     azureAd: {
       tenantId: getEnvOrThrow('AZURE_AD_TENANT_ID'),
       clientId: getEnvOrThrow('AZURE_AD_CLIENT_ID'),
-      authorizedGroupId: getEnvOrThrow('AUTHORIZED_GROUP_ID'),
+      authorizedGroupId: process.env['AZURE_AD_AUTHORIZED_GROUP_ID'],
     },
     claudeAgent: {
       namespace: getEnvOrDefault('CLAUDE_AGENT_NAMESPACE', 'claude-agent'),
       serviceUrl: getEnvOrDefault(
-        'CLAUDE_AGENT_SERVICE',
-        'http://claude-agent.claude-agent.svc.cluster.local'
+        'CLAUDE_AGENT_SERVICE_URL',
+        'http://claude-agent.claude-agent.svc.cluster.local:80'
       ),
     },
     healthPollIntervalMs: parseInt(
