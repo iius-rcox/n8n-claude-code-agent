@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops-dashboard
+  namespace: ops-dashboard
+  labels:
+    app: ops-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops-dashboard
+  template:
+    metadata:
+      labels:
+        app: ops-dashboard
+    spec:
+      serviceAccountName: ops-dashboard
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: dashboard
+          image: iiusacr.azurecr.io/ops-dashboard:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: NODE_ENV
+              value: "production"
+            - name: STATIC_FILES_PATH
+              value: "/app/public"
+            # Azure AD configuration from ConfigMap
+            - name: AZURE_AD_TENANT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: AZURE_AD_TENANT_ID
+            - name: AZURE_AD_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: AZURE_AD_CLIENT_ID
+            - name: AZURE_AD_AUTHORIZED_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: AZURE_AD_AUTHORIZED_GROUP_ID
+            # Claude agent configuration
+            - name: CLAUDE_AGENT_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: CLAUDE_AGENT_NAMESPACE
+            - name: CLAUDE_AGENT_SERVICE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: CLAUDE_AGENT_SERVICE_URL
+            - name: HEALTH_POLL_INTERVAL_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: HEALTH_POLL_INTERVAL_MS
+                  optional: true
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ops-dashboard
+  labels:
+    app.kubernetes.io/name: ops-dashboard
+    app.kubernetes.io/component: operations

@@ -1,0 +1,631 @@
+openapi: 3.0.3
+info:
+  title: Operations Dashboard API
+  description: REST API for Claude Agent Operations Dashboard
+  version: 1.0.0
+  contact:
+    name: II-US Operations Team
+
+servers:
+  - url: /api
+    description: Dashboard backend API
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Health
+    description: System health monitoring endpoints
+  - name: Auth
+    description: Authentication status endpoints
+  - name: Credentials
+    description: Claude credentials management
+  - name: Execute
+    description: Claude agent execution
+  - name: CronJob
+    description: CronJob management
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Get overall system health
+      description: Returns health status of all monitored components
+      operationId: getHealth
+      responses:
+        '200':
+          description: Health status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /health/pods:
+    get:
+      tags: [Health]
+      summary: Get pod health status
+      description: Returns detailed pod status for claude-agent namespace
+      operationId: getPodHealth
+      responses:
+        '200':
+          description: Pod health retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HealthStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/status:
+    get:
+      tags: [Auth]
+      summary: Get Claude authentication status
+      description: Returns current Claude authentication state
+      operationId: getAuthStatus
+      responses:
+        '200':
+          description: Auth status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /credentials/refresh:
+    post:
+      tags: [Credentials]
+      summary: Initiate token refresh workflow
+      description: Creates a new token refresh operation and returns CLI command
+      operationId: initiateRefresh
+      responses:
+        '200':
+          description: Refresh initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshInitResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Refresh already in progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /credentials/push:
+    post:
+      tags: [Credentials]
+      summary: Push credentials from CLI
+      description: Receives credentials from CLI script and continues refresh workflow
+      operationId: pushCredentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialsPushRequest'
+      responses:
+        '200':
+          description: Credentials accepted, refresh continuing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CredentialsPushResponse'
+        '400':
+          description: Invalid credentials format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No pending refresh operation found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /credentials/refresh/{operationId}:
+    get:
+      tags: [Credentials]
+      summary: Get refresh operation status
+      description: Returns current status of a token refresh operation
+      operationId: getRefreshStatus
+      parameters:
+        - name: operationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Operation status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefreshOperation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Operation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /execute:
+    post:
+      tags: [Execute]
+      summary: Execute Claude prompt
+      description: Sends a prompt to the Claude agent and returns the response
+      operationId: executePrompt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Execution completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionRecord'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '504':
+          description: Execution timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionRecord'
+
+  /executions:
+    get:
+      tags: [Execute]
+      summary: Get execution history
+      description: Returns recent Claude agent executions
+      operationId: getExecutions
+      parameters:
+        - name: status
+          in: query
+          description: Filter by execution status
+          schema:
+            type: string
+            enum: [success, error, auth_failure, timeout]
+        - name: limit
+          in: query
+          description: Maximum number of results
+          schema:
+            type: integer
+            default: 20
+            maximum: 50
+      responses:
+        '200':
+          description: Execution history retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExecutionRecord'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /executions/{id}:
+    get:
+      tags: [Execute]
+      summary: Get execution details
+      description: Returns full details of a specific execution
+      operationId: getExecution
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Execution details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionRecordFull'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Execution not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /cronjobs:
+    get:
+      tags: [CronJob]
+      summary: Get CronJob status
+      description: Returns auth watchdog CronJob status and recent runs
+      operationId: getCronJobs
+      responses:
+        '200':
+          description: CronJob status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJobStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /cronjobs/trigger:
+    post:
+      tags: [CronJob]
+      summary: Trigger manual CronJob run
+      description: Creates a Job from the auth watchdog CronJob template
+      operationId: triggerCronJob
+      responses:
+        '200':
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJobTriggerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Azure AD access token
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [timestamp, components, overall]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        overall:
+          type: string
+          enum: [healthy, unhealthy, degraded]
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/HealthStatus'
+
+    HealthStatus:
+      type: object
+      required: [component, name, status, lastChecked]
+      properties:
+        component:
+          type: string
+          enum: [pod, service, auth, cronjob]
+        name:
+          type: string
+        status:
+          type: string
+          enum: [healthy, unhealthy, unknown, pending]
+        lastChecked:
+          type: string
+          format: date-time
+        details:
+          $ref: '#/components/schemas/HealthDetails'
+
+    HealthDetails:
+      type: object
+      properties:
+        phase:
+          type: string
+          enum: [Running, Pending, Failed, Succeeded, Unknown]
+        readyContainers:
+          type: integer
+        totalContainers:
+          type: integer
+        restartCount:
+          type: integer
+        lastRestartTime:
+          type: string
+          format: date-time
+        authenticated:
+          type: boolean
+        exitCode:
+          type: integer
+        lastFailureTime:
+          type: string
+          format: date-time
+        expiryEstimate:
+          type: string
+          format: date-time
+        lastScheduleTime:
+          type: string
+          format: date-time
+        lastSuccessfulTime:
+          type: string
+          format: date-time
+        activeJobs:
+          type: integer
+
+    AuthStatus:
+      type: object
+      required: [authenticated, lastChecked]
+      properties:
+        authenticated:
+          type: boolean
+        lastChecked:
+          type: string
+          format: date-time
+        exitCode:
+          type: integer
+        expiryEstimate:
+          type: string
+          format: date-time
+        lastFailureTime:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    RefreshInitResponse:
+      type: object
+      required: [operationId, cliCommand, status]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [waiting_credentials]
+        cliCommand:
+          type: string
+          description: Ready-to-run CLI command for operator
+        expiresAt:
+          type: string
+          format: date-time
+          description: Time when this refresh operation expires if not completed
+
+    CredentialsPushRequest:
+      type: object
+      required: [credentials, settings]
+      properties:
+        credentials:
+          type: string
+          description: Contents of .credentials.json file
+        settings:
+          type: string
+          description: Contents of settings.json file
+
+    CredentialsPushResponse:
+      type: object
+      required: [success, operationId]
+      properties:
+        success:
+          type: boolean
+        operationId:
+          type: string
+          format: uuid
+        message:
+          type: string
+
+    TokenRefreshOperation:
+      type: object
+      required: [id, status, startTime, currentStep, steps]
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        currentStep:
+          type: string
+          enum: [waiting_credentials, deleting_secret, creating_secret, restarting_deployment, verifying_auth, complete]
+        steps:
+          type: array
+          items:
+            $ref: '#/components/schemas/StepStatus'
+        error:
+          $ref: '#/components/schemas/TokenRefreshError'
+
+    StepStatus:
+      type: object
+      required: [step, status]
+      properties:
+        step:
+          type: string
+          enum: [waiting_credentials, deleting_secret, creating_secret, restarting_deployment, verifying_auth, complete]
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        message:
+          type: string
+
+    TokenRefreshError:
+      type: object
+      required: [step, message]
+      properties:
+        step:
+          type: string
+        message:
+          type: string
+        details:
+          type: string
+        remediation:
+          type: string
+
+    ExecuteRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt:
+          type: string
+          maxLength: 100000
+        timeout:
+          type: integer
+          default: 300000
+          description: Timeout in milliseconds
+
+    ExecutionRecord:
+      type: object
+      required: [id, timestamp, source, prompt, exitCode, duration, status]
+      properties:
+        id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        source:
+          type: string
+          enum: [dashboard, n8n, cronjob]
+        prompt:
+          type: string
+          description: Truncated to 200 characters
+        exitCode:
+          type: integer
+        duration:
+          type: integer
+          description: Duration in milliseconds
+        status:
+          type: string
+          enum: [success, error, auth_failure, timeout]
+        output:
+          type: string
+          description: Truncated output
+        error:
+          type: string
+
+    ExecutionRecordFull:
+      allOf:
+        - $ref: '#/components/schemas/ExecutionRecord'
+        - type: object
+          properties:
+            promptFull:
+              type: string
+              description: Full prompt text
+            outputFull:
+              type: string
+              description: Full output text
+
+    CronJobStatus:
+      type: object
+      required: [name, schedule, lastScheduleTime, recentRuns]
+      properties:
+        name:
+          type: string
+        schedule:
+          type: string
+          description: Cron expression
+        lastScheduleTime:
+          type: string
+          format: date-time
+        lastSuccessfulTime:
+          type: string
+          format: date-time
+        activeJobs:
+          type: integer
+        recentRuns:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronJobRun'
+          maxItems: 5
+
+    CronJobRun:
+      type: object
+      required: [jobName, cronJobName, startTime, status]
+      properties:
+        jobName:
+          type: string
+        cronJobName:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        completionTime:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [running, succeeded, failed]
+        exitCode:
+          type: integer
+        duration:
+          type: integer
+          description: Duration in milliseconds
+
+    CronJobTriggerResponse:
+      type: object
+      required: [success, jobName]
+      properties:
+        success:
+          type: boolean
+        jobName:
+          type: string
+        message:
+          type: string
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        details:
+          type: string
+
+    ValidationError:
+      type: object
+      required: [error, errors]
+      properties:
+        error:
+          type: string
+        errors:
+          type: array
+          items:
+            type: string

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ops-dashboard-config
+  namespace: ops-dashboard
+data:
+  # Azure AD Configuration
+  # Replace these values with your actual Azure AD settings
+  AZURE_AD_TENANT_ID: "<your-tenant-id>"
+  AZURE_AD_CLIENT_ID: "<your-client-id>"
+  AZURE_AD_AUTHORIZED_GROUP_ID: "<your-security-group-id>"
+
+  # Claude Agent Configuration
+  CLAUDE_AGENT_NAMESPACE: "claude-agent"
+  CLAUDE_AGENT_SERVICE_URL: "http://claude-agent.claude-agent.svc.cluster.local:8080"
+
+  # Health polling interval (optional, default 30000ms)
+  HEALTH_POLL_INTERVAL_MS: "30000"
