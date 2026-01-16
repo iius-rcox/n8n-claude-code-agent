@@ -225,6 +225,45 @@ n8n-claude-code-agent/
 - **GitHub**: App credentials via CSI Driver from Key Vault
 - **Claude**: Session tokens from Kubernetes secret
 
+## Token Refresh
+
+When Claude session tokens expire (exit code 57), follow these steps to refresh authentication:
+
+### 1. Re-authenticate Claude CLI locally
+
+```powershell
+# On your local machine with Claude Max subscription
+claude /login
+```
+
+### 2. Delete the old Kubernetes secret
+
+```bash
+kubectl delete secret claude-session -n claude-agent
+```
+
+### 3. Create new secret from fresh tokens
+
+```bash
+kubectl create secret generic claude-session -n claude-agent \
+  --from-file=credentials.json=$HOME/.claude/.credentials.json \
+  --from-file=settings.json=$HOME/.claude/settings.json
+```
+
+### 4. Restart the deployment
+
+```bash
+kubectl rollout restart deployment/claude-agent -n claude-agent
+```
+
+### 5. Verify authentication
+
+```bash
+kubectl exec -n claude-agent deploy/claude-agent -- claude -p "Say: auth test" --max-turns 1
+```
+
+You should see a successful response from Claude.
+
 ## Monitoring
 
 ### Auth Watchdog
