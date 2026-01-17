@@ -31,6 +31,8 @@ async function getIdToken(): Promise<string> {
   }
 }
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+
 async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const token = await getIdToken();
 
@@ -38,7 +40,8 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
   headers.set('Authorization', `Bearer ${token}`);
   headers.set('Content-Type', 'application/json');
 
-  const response = await fetch(url, {
+  const fullUrl = API_BASE_URL ? `${API_BASE_URL}${url}` : url;
+  const response = await fetch(fullUrl, {
     ...options,
     headers,
   });
@@ -121,7 +124,7 @@ export async function getAuthStatus(): Promise<AuthStatus> {
 export interface RefreshInitResponse {
   operationId: string;
   status: 'waiting_credentials';
-  cliCommand: string;
+  instruction: string;
   expiresAt: string;
 }
 

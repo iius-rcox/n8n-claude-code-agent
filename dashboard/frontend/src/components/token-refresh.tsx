@@ -5,7 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { initiateRefresh, getRefreshStatus, TokenRefreshOperation, RefreshInitResponse } from '@/services/api';
-import { RefreshCw, Copy, Check, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 const STEP_LABELS: Record<string, string> = {
   waiting_credentials: 'Waiting for credentials',
@@ -20,7 +20,6 @@ export function TokenRefresh() {
   const [isLoading, setIsLoading] = useState(false);
   const [initResponse, setInitResponse] = useState<RefreshInitResponse | null>(null);
   const [operation, setOperation] = useState<TokenRefreshOperation | null>(null);
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleInitiateRefresh = async () => {
@@ -36,18 +35,6 @@ export function TokenRefresh() {
       setError(err instanceof Error ? err.message : 'Failed to initiate refresh');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleCopyCommand = async () => {
-    if (!initResponse?.cliCommand) return;
-
-    try {
-      await navigator.clipboard.writeText(initResponse.cliCommand);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError('Failed to copy command to clipboard');
     }
   };
 
@@ -137,33 +124,25 @@ export function TokenRefresh() {
           </Button>
         )}
 
-        {/* Waiting for credentials - Show CLI command */}
+        {/* Waiting for credentials - Show simple instruction */}
         {initResponse && (!operation || operation.currentStep === 'waiting_credentials') && (
           <div className="space-y-4">
             <Alert>
-              <AlertTitle>Run this command locally</AlertTitle>
+              <RefreshCw className="h-4 w-4" />
+              <AlertTitle>Run this command in your terminal</AlertTitle>
               <AlertDescription className="mt-2">
-                <p className="mb-2 text-sm">
-                  First, run <code className="bg-muted px-1 rounded">claude /login</code> to
-                  authenticate, then run this command to push your credentials:
+                <code className="bg-muted px-2 py-1 rounded text-sm font-mono">claude /login</code>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {initResponse.instruction || 'Credentials will be detected automatically when you complete the login.'}
                 </p>
-                <div className="flex items-center gap-2 mt-2">
-                  <code className="flex-1 bg-muted p-2 rounded text-xs font-mono overflow-x-auto">
-                    {initResponse.cliCommand}
-                  </code>
-                  <Button variant="outline" size="icon" onClick={handleCopyCommand}>
-                    {copied ? (
-                      <Check className="h-4 w-4 text-green-500" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
               </AlertDescription>
             </Alert>
 
             <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>Waiting for credentials push...</span>
+              <span className="flex items-center gap-2">
+                <RefreshCw className="h-3 w-3 animate-spin" />
+                Waiting for login...
+              </span>
               <span>Expires: {new Date(initResponse.expiresAt).toLocaleTimeString()}</span>
             </div>
 

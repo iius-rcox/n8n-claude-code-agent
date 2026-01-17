@@ -9,6 +9,7 @@ import { createK8sRouter } from './k8s.js';
 import { KubernetesService } from '../../services/kubernetes.js';
 import { TokenRefreshService } from '../../services/token-refresh.js';
 import { ClaudeAgentService } from '../../services/claude-agent.js';
+import { CredentialsWatcherService } from '../../services/credentials-watcher.js';
 
 export function createApiRouter(config: Config): Router {
   const router = Router();
@@ -17,6 +18,10 @@ export function createApiRouter(config: Config): Router {
   const k8sService = new KubernetesService(config);
   const claudeService = new ClaudeAgentService(config);
   const tokenRefreshService = new TokenRefreshService(config, k8sService, claudeService);
+
+  // Start credentials file watcher for auto-push on claude /login
+  const credentialsWatcher = new CredentialsWatcherService(tokenRefreshService);
+  credentialsWatcher.start();
 
   // Auth middleware
   const authMiddleware = createAuthMiddleware(config);

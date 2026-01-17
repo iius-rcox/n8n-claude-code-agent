@@ -1,0 +1,6 @@
+@echo off
+cd /d "%~dp0"
+set AZURE_AD_TENANT_ID=953922e6-5370-4a01-a3d5-773a30df726b
+set AZURE_AD_CLIENT_ID=0c3055e9-9442-429f-9df6-460d75e85739
+set PORT=8096
+npm run dev

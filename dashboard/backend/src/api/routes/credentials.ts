@@ -31,20 +31,13 @@ export function createCredentialsRouter(
       // Create new operation
       const operation = tokenRefreshService.createOperation(dashboardUrl);
 
-      // Generate CLI command
-      const cliCommand = tokenRefreshService.generateCliCommand(
-        operation.id,
-        dashboardUrl,
-        sessionToken
-      );
-
       // Calculate expiry (10 minutes from now)
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
       res.json({
         operationId: operation.id,
         status: 'waiting_credentials',
-        cliCommand,
+        instruction: 'Run "claude /login" in your terminal. Credentials will be detected automatically.',
         expiresAt,
       });
     } catch (error) {
