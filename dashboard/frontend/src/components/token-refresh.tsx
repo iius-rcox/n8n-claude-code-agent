@@ -6,7 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { initiateRefresh, getRefreshStatus, pushCredentials, pushOAuthToken, TokenRefreshOperation, RefreshInitResponse } from '@/services/api';
-import { RefreshCw, AlertCircle, CheckCircle2, Copy, Key, Shield } from 'lucide-react';
+import { RefreshCw, AlertCircle, CheckCircle2, Copy, Key, Shield, ChevronDown, ChevronRight } from 'lucide-react';
 
 const STEP_LABELS: Record<string, string> = {
   waiting_credentials: 'Waiting for credentials',
@@ -17,7 +17,12 @@ const STEP_LABELS: Record<string, string> = {
   complete: 'Complete',
 };
 
-export function TokenRefresh() {
+interface TokenRefreshProps {
+  isAuthenticated?: boolean;
+}
+
+export function TokenRefresh({ isAuthenticated = false }: TokenRefreshProps) {
+  const [isCollapsed, setIsCollapsed] = useState(isAuthenticated);
   const [isLoading, setIsLoading] = useState(false);
   const [initResponse, setInitResponse] = useState<RefreshInitResponse | null>(null);
   const [operation, setOperation] = useState<TokenRefreshOperation | null>(null);
@@ -31,6 +36,11 @@ export function TokenRefresh() {
   // Legacy credentials state
   const [credentialsJson, setCredentialsJson] = useState('');
   const [isPushing, setIsPushing] = useState(false);
+
+  // Collapse when authenticated, expand when not
+  useEffect(() => {
+    setIsCollapsed(isAuthenticated);
+  }, [isAuthenticated]);
 
   const handleInitiateRefresh = async () => {
     setIsLoading(true);
@@ -162,15 +172,36 @@ export function TokenRefresh() {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Key className="h-5 w-5" />
-          Authentication
-        </CardTitle>
+      <CardHeader
+        className={isAuthenticated ? 'cursor-pointer select-none' : ''}
+        onClick={() => isAuthenticated && setIsCollapsed(!isCollapsed)}
+      >
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Key className="h-5 w-5" />
+            Authentication
+            {isAuthenticated && (
+              <Badge variant="success" className="ml-2">Configured</Badge>
+            )}
+          </CardTitle>
+          {isAuthenticated && (
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </Button>
+          )}
+        </div>
         <CardDescription>
-          Configure Claude authentication for the agent
+          {isCollapsed && isAuthenticated
+            ? 'Click to expand and reconfigure authentication'
+            : 'Configure Claude authentication for the agent'
+          }
         </CardDescription>
       </CardHeader>
+      {!isCollapsed && (
       <CardContent className="space-y-4">
         {/* Error State */}
         {error && (
@@ -438,6 +469,7 @@ export function TokenRefresh() {
           </Button>
         )}
       </CardContent>
+      )}
     </Card>
   );
 }

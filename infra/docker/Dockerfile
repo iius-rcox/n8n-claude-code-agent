@@ -1,5 +1,5 @@
 # Claude Code Agent Container Image
-# Version: v4.6.4
+# Version: v4.6.5
 # Base: Ubuntu 24.04 LTS
 # Change: Moved server files to /opt/claude-agent/ to allow /home/claude-agent emptyDir mount
 

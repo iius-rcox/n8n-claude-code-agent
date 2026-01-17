@@ -128,7 +128,7 @@ async function handleRun(req, res) {
   const cwd = body.workdir || process.env.HOME || '/home/claude-agent';
 
   try {
-    const result = spawnSync('claude', ['-p', body.prompt], {
+    const result = spawnSync('claude', ['--dangerously-skip-permissions', '-p', body.prompt], {
       cwd,
       timeout,
       encoding: 'utf-8',

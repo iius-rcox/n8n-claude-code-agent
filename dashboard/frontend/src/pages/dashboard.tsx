@@ -1,6 +1,6 @@
 import { useMsal } from '@azure/msal-react';
-import { useEffect } from 'react';
-import { setMsalInstance } from '@/services/api';
+import { useEffect, useState, useCallback } from 'react';
+import { setMsalInstance, getAuthStatus } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { HealthPanel } from '@/components/health-panel';
 import { AuthStatusPanel } from '@/components/auth-status';
@@ -12,10 +12,28 @@ import { CronJobPanel } from '@/components/cronjob-panel';
 export function Dashboard() {
   const { instance, accounts } = useMsal();
   const account = accounts[0];
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Fetch auth status for collapse state
+  const fetchAuthStatus = useCallback(async () => {
+    try {
+      const data = await getAuthStatus();
+      setIsAuthenticated(data.authenticated);
+    } catch {
+      // Ignore errors - auth panel will show them
+    }
+  }, []);
 
   useEffect(() => {
     setMsalInstance(instance);
   }, [instance]);
+
+  // Poll auth status for collapse/expand behavior
+  useEffect(() => {
+    fetchAuthStatus();
+    const intervalId = setInterval(fetchAuthStatus, 30000);
+    return () => clearInterval(intervalId);
+  }, [fetchAuthStatus]);
 
   const handleLogout = () => {
     instance.logoutPopup();
@@ -57,7 +75,7 @@ export function Dashboard() {
 
         {/* Middle Row: Token Refresh + CronJob */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <TokenRefresh />
+          <TokenRefresh isAuthenticated={isAuthenticated} />
           <CronJobPanel />
         </div>
 
