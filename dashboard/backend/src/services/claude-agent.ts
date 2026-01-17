@@ -79,7 +79,7 @@ export class ClaudeAgentService {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-      const response = await fetch(`${this.serviceUrl}/execute`, {
+      const response = await fetch(`${this.serviceUrl}/run`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
