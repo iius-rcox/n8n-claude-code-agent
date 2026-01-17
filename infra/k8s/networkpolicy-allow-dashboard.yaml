@@ -1,0 +1,22 @@
+# NetworkPolicy: Allow Dashboard to Claude Agent
+# Purpose: Enable ops-dashboard to communicate with Claude agent for health checks and auth verification
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-from-dashboard
+  namespace: claude-agent
+spec:
+  podSelector:
+    matchLabels:
+      app: claude-code-agent
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ops-dashboard
+      ports:
+        - protocol: TCP
+          port: 3000
