@@ -15,17 +15,17 @@ export function createK8sRouter(k8sService: KubernetesService): Router {
    */
   router.get('/', async (_req: Request, res: Response) => {
     try {
-      const cronJobInfo = await k8sService.getCronJob('auth-watchdog');
+      const cronJobInfo = await k8sService.getCronJob('claude-auth-watchdog');
 
       if (!cronJobInfo) {
         return res.status(404).json({
           error: 'CronJob not found',
-          message: 'The auth-watchdog CronJob does not exist in the cluster',
+          message: 'The claude-auth-watchdog CronJob does not exist in the cluster',
         });
       }
 
       // Get recent job runs
-      const recentRuns = await k8sService.getJobsForCronJob('auth-watchdog', 5);
+      const recentRuns = await k8sService.getJobsForCronJob('claude-auth-watchdog', 5);
 
       const response: CronJobStatus = {
         ...cronJobInfo,
@@ -45,7 +45,7 @@ export function createK8sRouter(k8sService: KubernetesService): Router {
    */
   router.post('/trigger', async (_req: Request, res: Response) => {
     try {
-      const jobName = await k8sService.createJobFromCronJob('auth-watchdog');
+      const jobName = await k8sService.createJobFromCronJob('claude-auth-watchdog');
 
       const response: CronJobTriggerResponse = {
         success: true,
