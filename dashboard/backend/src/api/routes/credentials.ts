@@ -24,9 +24,9 @@ export function createCredentialsRouter(
       const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
       const dashboardUrl = `${protocol}://${host}`;
 
-      // Get session token from authorization header for CLI command
-      const authHeader = req.headers.authorization || '';
-      const sessionToken = authHeader.replace('Bearer ', '');
+      // Session token is available from authorization header if needed for future CLI command generation
+      // const authHeader = req.headers.authorization || '';
+      // const sessionToken = authHeader.replace('Bearer ', '');
 
       // Create new operation
       const operation = tokenRefreshService.createOperation(dashboardUrl);
@@ -88,6 +88,41 @@ export function createCredentialsRouter(
       }
 
       res.json(operation);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // POST /api/credentials/oauth-token - Set long-lived OAuth token from setup-token
+  router.post('/oauth-token', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { token } = req.body as { token?: string };
+
+      if (!token || typeof token !== 'string') {
+        throw new ValidationError('Token is required', ['Missing or invalid token field']);
+      }
+
+      // Basic validation - token should have expected format
+      const trimmedToken = token.trim();
+      if (trimmedToken.length < 20) {
+        throw new ValidationError('Invalid token format', ['Token is too short']);
+      }
+
+      // Set the token (creates secret and restarts deployment)
+      const result = await tokenRefreshService.setOAuthToken(trimmedToken);
+
+      if (!result.success) {
+        res.status(500).json({
+          success: false,
+          message: result.message,
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        message: result.message,
+      });
     } catch (error) {
       next(error);
     }

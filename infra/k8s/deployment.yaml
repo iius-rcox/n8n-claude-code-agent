@@ -89,6 +89,14 @@ spec:
                 secretKeyRef:
                   name: teams-webhook
                   key: url
+            # Long-lived OAuth token from 'claude setup-token' (preferred)
+            # When set, Claude CLI authenticates via env var - no credential files needed
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: claude-oauth-token
+                  key: token
+                  optional: true  # Falls back to credential files if not set
 
           volumeMounts:
             - name: claude-home

@@ -28,7 +28,8 @@ export class TokenRefreshService {
   private operations: Map<string, TokenRefreshOperation> = new Map();
   private readonly OPERATION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
   private readonly SECRET_NAME = 'claude-session';
-  private readonly DEPLOYMENT_NAME = 'claude-agent';
+  private readonly OAUTH_TOKEN_SECRET_NAME = 'claude-oauth-token';
+  private readonly DEPLOYMENT_NAME = 'claude-code-agent';
 
   constructor(
     _config: Config,
@@ -237,5 +238,45 @@ export class TokenRefreshService {
 
   generateCliCommand(_operationId: string, dashboardUrl: string, sessionToken: string): string {
     return `.\\push-credentials.ps1 -DashboardUrl "${dashboardUrl}" -SessionToken "${sessionToken}"`;
+  }
+
+  /**
+   * Set the long-lived OAuth token from 'claude setup-token'.
+   * Creates or updates the claude-oauth-token secret and restarts the deployment.
+   */
+  async setOAuthToken(token: string): Promise<{ success: boolean; message: string }> {
+    try {
+      // Delete existing secret if present
+      await this.k8sService.deleteSecret(this.OAUTH_TOKEN_SECRET_NAME);
+
+      // Create new secret with the token
+      await this.k8sService.createSecret(this.OAUTH_TOKEN_SECRET_NAME, {
+        token: token,
+      });
+
+      // Restart deployment to pick up the new token
+      await this.k8sService.restartDeployment(this.DEPLOYMENT_NAME);
+
+      // Verify auth after a delay (give deployment time to restart)
+      await new Promise((resolve) => setTimeout(resolve, 15000));
+      const authResult = await this.claudeService.checkAuth();
+
+      if (!authResult.authenticated) {
+        return {
+          success: false,
+          message: `Token configured but authentication verification failed: ${authResult.message}`,
+        };
+      }
+
+      return {
+        success: true,
+        message: 'OAuth token configured successfully. Agent is authenticated.',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to configure OAuth token',
+      };
+    }
   }
 }

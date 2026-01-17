@@ -163,6 +163,42 @@ export async function getRefreshStatus(operationId: string): Promise<TokenRefres
   return response.json();
 }
 
+export interface CredentialsPushRequest {
+  credentials: string;
+  settings: string;
+}
+
+export interface CredentialsPushResponse {
+  success: boolean;
+  operationId: string;
+  message: string;
+}
+
+export async function pushCredentials(request: CredentialsPushRequest): Promise<CredentialsPushResponse> {
+  const response = await fetchWithAuth('/api/credentials/push', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+  return response.json();
+}
+
+export interface OAuthTokenRequest {
+  token: string;
+}
+
+export interface OAuthTokenResponse {
+  success: boolean;
+  message: string;
+}
+
+export async function pushOAuthToken(request: OAuthTokenRequest): Promise<OAuthTokenResponse> {
+  const response = await fetchWithAuth('/api/credentials/oauth-token', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+  return response.json();
+}
+
 // Execute API
 export interface ExecuteRequest {
   prompt: string;
