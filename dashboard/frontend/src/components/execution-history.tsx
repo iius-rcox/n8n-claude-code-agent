@@ -39,6 +39,8 @@ import {
   XCircle,
   Clock,
   Loader2,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 type StatusFilter = ExecutionStatus | 'all';
@@ -103,6 +105,7 @@ export function ExecutionHistory() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [selectedExecution, setSelectedExecution] = useState<ExecutionRecord | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const fetchExecutions = useCallback(async () => {
     try {
@@ -158,19 +161,36 @@ export function ExecutionHistory() {
   return (
     <>
       <Card>
-        <CardHeader>
+        <CardHeader
+          className={isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''}
+          onClick={() => isCollapsed && setIsCollapsed(false)}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
               <History className="h-5 w-5" />
-              <CardTitle>Execution History</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                Execution History
+                {isCollapsed && (
+                  <span className="text-sm font-normal text-muted-foreground">
+                    ({total} record{total !== 1 ? 's' : ''})
+                  </span>
+                )}
+              </CardTitle>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isLoading}>
+            <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRefresh(); }} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
-          <CardDescription>Recent Claude agent execution records</CardDescription>
+          <CardDescription>
+            {isCollapsed ? 'Click to expand details' : 'Recent Claude agent execution records'}
+          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        {!isCollapsed && <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
             <Select
               value={statusFilter}
@@ -249,7 +269,13 @@ export function ExecutionHistory() {
               </Table>
             </div>
           )}
-        </CardContent>
+
+          <div className="flex justify-end mt-4">
+            <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
+              Collapse
+            </Button>
+          </div>
+        </CardContent>}
       </Card>
 
       <Dialog open={!!selectedExecution} onOpenChange={() => setSelectedExecution(null)}>

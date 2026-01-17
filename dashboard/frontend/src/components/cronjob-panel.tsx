@@ -28,6 +28,8 @@ import {
   XCircle,
   Loader2,
   Calendar,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 
 function getStatusBadgeVariant(
@@ -99,6 +101,11 @@ export function CronJobPanel() {
     null
   );
 
+  // Check if there are any recent failures (last run failed)
+  const hasRecentFailure = cronJob?.recentRuns?.[0]?.status === 'failed' || cronJob?.suspended;
+  const hasIssue = error || hasRecentFailure;
+  const [isCollapsed, setIsCollapsed] = useState(true);
+
   const fetchCronJob = useCallback(async () => {
     try {
       const data = await getCronJobs();
@@ -117,6 +124,13 @@ export function CronJobPanel() {
     const intervalId = setInterval(fetchCronJob, 30000);
     return () => clearInterval(intervalId);
   }, [fetchCronJob]);
+
+  // Auto-expand when there's an issue
+  useEffect(() => {
+    if (hasIssue) {
+      setIsCollapsed(false);
+    }
+  }, [hasIssue]);
 
   const handleTrigger = async () => {
     setShowConfirmDialog(false);
@@ -164,41 +178,58 @@ export function CronJobPanel() {
   return (
     <>
       <Card>
-        <CardHeader>
+        <CardHeader
+          className={isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''}
+          onClick={() => isCollapsed && setIsCollapsed(false)}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
               <Calendar className="h-5 w-5" />
-              <CardTitle>Auth Watchdog CronJob</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                Auth Watchdog CronJob
+                {isCollapsed && cronJob && (
+                  <Badge variant={cronJob.suspended ? 'destructive' : 'success'}>
+                    {cronJob.suspended ? 'Suspended' : 'Active'}
+                  </Badge>
+                )}
+              </CardTitle>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowConfirmDialog(true)}
-                disabled={isTriggering || !cronJob}
-              >
-                {isTriggering ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Running...
-                  </>
-                ) : (
-                  <>
-                    <Play className="mr-2 h-4 w-4" />
-                    Run Now
-                  </>
-                )}
-              </Button>
-              <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={isLoading}>
+              {!isCollapsed && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={(e) => { e.stopPropagation(); setShowConfirmDialog(true); }}
+                  disabled={isTriggering || !cronJob}
+                >
+                  {isTriggering ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Running...
+                    </>
+                  ) : (
+                    <>
+                      <Play className="mr-2 h-4 w-4" />
+                      Run Now
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleRefresh(); }} disabled={isLoading}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>
           </div>
           <CardDescription>
-            Periodic authentication verification and alerting
+            {isCollapsed ? 'Click to expand details' : 'Periodic authentication verification and alerting'}
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        {!isCollapsed && <CardContent className="space-y-4">
           {error && (
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="h-4 w-4" />
@@ -305,9 +336,15 @@ export function CronJobPanel() {
                   </div>
                 )}
               </div>
+
+              <div className="flex justify-end mt-4">
+                <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
+                  Collapse
+                </Button>
+              </div>
             </>
           )}
-        </CardContent>
+        </CardContent>}
       </Card>
 
       <Dialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
