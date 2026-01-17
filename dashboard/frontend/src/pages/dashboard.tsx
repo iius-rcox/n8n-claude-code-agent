@@ -3,7 +3,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { setMsalInstance, getAuthStatus } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { HealthPanel } from '@/components/health-panel';
-import { AuthStatusPanel } from '@/components/auth-status';
 import { TokenRefresh } from '@/components/token-refresh';
 import { AgentExecutor } from '@/components/agent-executor';
 import { ExecutionHistory } from '@/components/execution-history';
@@ -67,15 +66,14 @@ export function Dashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        {/* Top Row: Health + Auth Status */}
+        {/* Top Row: Health + Authentication */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <HealthPanel />
-          <AuthStatusPanel />
+          <TokenRefresh isAuthenticated={isAuthenticated} />
         </div>
 
-        {/* Middle Row: Token Refresh + CronJob */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <TokenRefresh isAuthenticated={isAuthenticated} />
+        {/* CronJob Panel */}
+        <div className="mb-6">
           <CronJobPanel />
         </div>
 
