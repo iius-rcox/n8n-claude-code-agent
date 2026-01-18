@@ -13,7 +13,7 @@
  */
 
 const http = require('http');
-const { spawnSync } = require('child_process');
+const { spawn } = require('child_process');
 
 // Server configuration
 const PORT = process.env.PORT || 3000;
@@ -78,6 +78,7 @@ function handleHealth(req, res) {
 
 /**
  * Handle POST /run
+ * Uses async spawn to avoid blocking the event loop (allows health checks during execution)
  */
 async function handleRun(req, res) {
   const startTime = Date.now();
@@ -124,15 +125,71 @@ async function handleRun(req, res) {
     }
   }
 
-  // Execute Claude CLI using spawnSync (prevents exit code 143)
+  // Execute Claude CLI using async spawn (non-blocking, allows health checks)
   const cwd = body.workdir || process.env.HOME || '/home/claude-agent';
 
+  console.log(`[${new Date().toISOString()}] Starting Claude CLI for prompt: "${body.prompt.substring(0, 50)}..."`);
+
   try {
-    const result = spawnSync('claude', ['--dangerously-skip-permissions', '-p', body.prompt], {
-      cwd,
-      timeout,
-      encoding: 'utf-8',
-      env: { ...process.env }
+    const result = await new Promise((resolve, reject) => {
+      let stdout = '';
+      let stderr = '';
+      let timedOut = false;
+      let killed = false;
+
+      const child = spawn('claude', ['--dangerously-skip-permissions', '-p', body.prompt], {
+        cwd,
+        env: { ...process.env },
+        stdio: ['ignore', 'pipe', 'pipe']  // Close stdin immediately
+      });
+
+      console.log(`[${new Date().toISOString()}] Spawned Claude process PID: ${child.pid}`);
+
+      // Set up timeout
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        killed = true;
+        child.kill('SIGTERM');
+        // Force kill after 5 seconds if still running
+        setTimeout(() => {
+          if (!child.killed) {
+            child.kill('SIGKILL');
+          }
+        }, 5000);
+      }, timeout);
+
+      // Collect stdout
+      child.stdout.on('data', (data) => {
+        console.log(`[${new Date().toISOString()}] stdout data: ${data.toString().length} bytes`);
+        stdout += data.toString();
+      });
+
+      // Collect stderr
+      child.stderr.on('data', (data) => {
+        console.log(`[${new Date().toISOString()}] stderr data: ${data.toString().length} bytes`);
+        stderr += data.toString();
+      });
+
+      // Handle process exit
+      child.on('close', (code, signal) => {
+        console.log(`[${new Date().toISOString()}] Process closed with code: ${code}, signal: ${signal}`);
+        clearTimeout(timeoutId);
+        resolve({
+          status: code,
+          signal,
+          stdout,
+          stderr,
+          timedOut,
+          killed
+        });
+      });
+
+      // Handle spawn errors
+      child.on('error', (err) => {
+        console.log(`[${new Date().toISOString()}] Spawn error: ${err.message}`);
+        clearTimeout(timeoutId);
+        reject(err);
+      });
     });
 
     const duration = Date.now() - startTime;
@@ -140,10 +197,10 @@ async function handleRun(req, res) {
     const success = exitCode === 0;
 
     // Handle timeout
-    if (result.signal === 'SIGTERM' || result.error?.code === 'ETIMEDOUT') {
+    if (result.timedOut) {
       sendJson(res, 200, {
         success: false,
-        output: '',
+        output: result.stdout || '',
         exitCode: 124,
         duration,
         error: `Execution timed out after ${timeout}ms`
