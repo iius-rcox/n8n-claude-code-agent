@@ -212,29 +212,27 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 ### Non-Functional Requirements (NFRs)
 
 #### Availability & Reliability
-- **NFR-001**: System MUST maintain 99% availability during business hours (6am-10pm CST, Mon-Fri)
-- **NFR-002**: System MUST recover from transient failures (network, storage) within 5 minutes without manual intervention
-- **NFR-003**: System MUST preserve task state across component restarts (pods, n8n workers)
-- **NFR-004**: System MUST handle AKS cluster upgrades without data loss (graceful shutdown with task persistence)
+- **NFR-001**: The task submission form MUST achieve 99.9% monthly availability
+- **NFR-002**: The task orchestration service MUST achieve 99.5% monthly availability
+- **NFR-003**: Task envelope writes MUST be durably persisted with 11 9s durability (Azure Blob standard)
+- **NFR-004**: Task processing MUST be idempotent per phase to tolerate retries without duplicate side effects
+- **NFR-005**: System MUST preserve task state across component restarts (pods, n8n workers)
 
-#### Latency & Throughput
-- **NFR-005**: Form submission acknowledgment MUST return within 3 seconds
-- **NFR-006**: Phase transitions MUST trigger within 30 seconds of previous phase completion
-- **NFR-007**: System MUST support processing 10 concurrent tasks without queue starvation
-- **NFR-008**: Human escalation notifications MUST be sent within 60 seconds of trigger
-- **NFR-009**: Dashboard status updates MUST reflect within 30 seconds of state change
+#### Performance & Scale
+- **NFR-006**: Task submission responses MUST return within 2 seconds at p95
+- **NFR-007**: Phase transitions MUST be recorded within 30 seconds at p95 under 10 concurrent tasks
+- **NFR-008**: System MUST support 10 concurrent active tasks without degradation (aligned with SC-003)
+- **NFR-009**: Human escalation notifications MUST be sent within 60 seconds of trigger at p95
+- **NFR-010**: Individual agent executions MUST complete within 10 minutes (timeout with retry)
 
-#### Durability & Data Retention
-- **NFR-010**: Task envelopes MUST be retained for 90 days after completion/cancellation
-- **NFR-011**: Agent artifacts (spec.md, plan.md, etc.) MUST be retained for 1 year
-- **NFR-012**: Verification and review reports MUST be retained for 90 days
-- **NFR-013**: All state mutations MUST be persisted to Azure Blob before acknowledging success
-- **NFR-014**: System MUST NOT lose in-flight task state during unexpected pod termination
+#### Data Retention
+- **NFR-011**: Task envelopes MUST be retained for 90 days after completion/cancellation
+- **NFR-012**: Agent artifacts (spec.md, plan.md, etc.) MUST be retained for 1 year
+- **NFR-013**: Verification and review reports MUST be retained for 90 days
 
-#### Scalability
-- **NFR-015**: System MUST scale to 50 concurrent tasks with additional n8n workers (horizontal scaling)
-- **NFR-016**: Agent context MUST fit within 80KB budget (100KB max - 20KB buffer)
-- **NFR-017**: Individual agent executions MUST complete within 10 minutes (timeout with retry)
+#### Observability
+- **NFR-014**: The system MUST emit structured logs and metrics for each phase transition, retry, and escalation
+- **NFR-015**: A trace ID MUST be propagated end-to-end for each task from submission through release
 
 ### Security & Privacy Requirements
 
@@ -245,30 +243,33 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 - **SEC-004**: n8n credentials MUST be stored encrypted using n8n's credential encryption
 - **SEC-005**: Dashboard access MUST require Azure AD authentication with MFA
 - **SEC-006**: Agent pods MUST run as non-root with read-only filesystem (except /tmp)
+- **SEC-007**: Access to task envelopes and artifacts MUST be restricted via RBAC with least-privilege
 
-#### Data Classification & Handling
-- **SEC-007**: Form submissions MAY contain internal business logic (Confidential - Internal)
-- **SEC-008**: Generated code MAY be committed to private repositories only
+#### Data Protection
+- **SEC-008**: All task data and artifacts MUST be encrypted in transit (TLS 1.2+) and at rest
 - **SEC-009**: Agent prompts MUST NOT include production credentials, API keys, or PII
 - **SEC-010**: Sensitive patterns (passwords, tokens, keys) MUST be redacted before storage
-- **SEC-011**: Task envelopes MUST NOT store raw user credentials or secrets
-
-#### Encryption
-- **SEC-012**: All data at rest MUST be encrypted (Azure Blob SSE, AKS etcd encryption)
-- **SEC-013**: All data in transit MUST use TLS 1.2+ (HTTPS for all external calls)
-- **SEC-014**: GitHub App private key MUST be stored in Azure Key Vault (not in K8s secrets)
+- **SEC-011**: Task envelopes MUST redact detected secrets and store redaction metadata (type, location, hash)
+- **SEC-012**: GitHub App private key MUST be stored in Azure Key Vault (not in K8s secrets)
 
 #### Audit & Compliance
-- **SEC-015**: All state transitions MUST be logged with timestamp, actor, and before/after values
-- **SEC-016**: All escalations MUST be logged with reason and resolution
-- **SEC-017**: Agent invocations MUST log prompt hash (not full prompt) for audit trail
-- **SEC-018**: System MUST support audit export for compliance review (task history JSON)
+- **SEC-013**: All administrative actions (cancel, escalate, merge) MUST be logged with actor, timestamp, and reason
+- **SEC-014**: All state transitions MUST be logged with timestamp, actor, and before/after values
+- **SEC-015**: Agent invocations MUST log prompt hash (not full prompt) for audit trail
+- **SEC-016**: System MUST support audit export for compliance review (task history JSON)
 
 #### Vulnerability Management
-- **SEC-019**: Reviewer Agent MUST check for OWASP Top 10 vulnerability patterns
-- **SEC-020**: Critical security vulnerabilities MUST trigger immediate escalation (bypass retry limits)
-- **SEC-021**: Known vulnerable dependency patterns MUST be flagged in review
-- **SEC-022**: System MUST NOT auto-merge PRs with unresolved security comments
+- **SEC-017**: All code changes MUST be scanned using SAST and dependency checks before Reviewer approval
+- **SEC-018**: Critical security vulnerabilities MUST trigger immediate escalation (bypass retry limits)
+- **SEC-019**: System MUST NOT auto-merge PRs with unresolved security comments
+
+### Security Model
+
+- **SM-001**: All agent actions MUST run under scoped identities with least-privilege access to storage and repos
+- **SM-002**: Task envelopes MUST redact detected secrets and store redaction metadata (type, location, hash)
+- **SM-003**: Clarification responses from users MUST be sanitized and scanned for prompt-injection patterns before reuse
+- **SM-004**: All code changes MUST be scanned using SAST and dependency checks before Reviewer approval
+- **SM-005**: Secrets required for testing MUST be injected via secure CI secrets and never stored in task artifacts
 
 ### Observability Requirements
 
@@ -285,32 +286,22 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 - **OBS-008**: Agent logs MUST include agent_type, duration_ms, and prompt_hash fields
 - **OBS-009**: State transition logs MUST include from_status, to_status, and trigger fields
 
-#### Tracing (Optional - Future)
-- **OBS-010**: Each task SHOULD have a distributed trace ID for end-to-end visibility
-- **OBS-011**: Agent invocations SHOULD be traced as child spans of task execution
-
 #### Alerting
-- **OBS-012**: Alert MUST fire when task stuck in same phase >2 hours
-- **OBS-013**: Alert MUST fire when auth failure (exit 57) detected
-- **OBS-014**: Alert MUST fire when error rate >10% over 15-minute window
-- **OBS-015**: Alert MUST fire when blob storage unavailable for >5 minutes
+- **OBS-010**: Alert MUST fire when task stuck in same phase >2 hours
+- **OBS-011**: Alert MUST fire when auth failure (exit 57) detected
+- **OBS-012**: Alert MUST fire when error rate >10% over 15-minute window
+- **OBS-013**: Alert MUST fire when blob storage unavailable for >5 minutes
 
 ### Cost & Resource Controls
 
-#### Compute
 - **COST-001**: Agent pods MUST have resource limits (CPU: 2 cores, Memory: 4GB)
 - **COST-002**: Concurrent agent executions MUST be limited to 10 per cluster
 - **COST-003**: Long-running agents (>10min) MUST be terminated and retried with reduced scope
-
-#### Storage
 - **COST-004**: Task artifacts older than retention period MUST be automatically deleted
 - **COST-005**: System MUST alert when storage usage exceeds 80% of quota
 - **COST-006**: Maximum artifact size MUST be limited (spec: 100KB, plan: 50KB, tasks: 100KB)
-
-#### API Usage
 - **COST-007**: GitHub API calls MUST be batched where possible (bulk status checks)
 - **COST-008**: Teams notifications MUST be rate-limited (max 10 per task per hour)
-- **COST-009**: Claude API usage MUST be tracked per task for cost attribution
 
 ### Functional Requirements
 
@@ -379,6 +370,40 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 - **FR-044**: System MUST allow task priority changes with appropriate queue reordering
 - **FR-045**: System MUST support task dependencies (wait for another task to complete)
 - **FR-046**: System MUST mark tasks as "stale" when waiting for clarification >7 days
+
+### State Machine & Transitions
+
+#### States
+- **Status**: `new`, `in_progress`, `needs_clarification`, `paused`, `auth_failure`, `completed`, `cancelled`, `escalated`, `failed`
+- **Phase**: `intake`, `planning`, `implementation`, `verification`, `review`, `release`
+
+#### Allowed Transitions
+| From | To | Trigger |
+|------|----|---------|
+| `new` | `in_progress` | Intake start |
+| `in_progress` | `needs_clarification` | PM ambiguity detected |
+| `needs_clarification` | `in_progress` | Clarification received |
+| `in_progress` | `paused` | Transient infra failure |
+| `paused` | `in_progress` | Recovery |
+| `in_progress` | `auth_failure` | Exit code 57 |
+| `auth_failure` | `in_progress` | Token refreshed |
+| `in_progress` | `escalated` | Retry limit exceeded or critical security issue |
+| `in_progress` | `failed` | Unrecoverable error |
+| `in_progress` | `completed` | Release success |
+| `in_progress` | `cancelled` | User/admin cancel |
+
+#### Transition Guards
+- Phase advances only when prior phase artifacts are validated (schema check + required outputs)
+- `verification` → `review` requires QA recommendation = approve
+- `review` → `release` requires Reviewer approval and no critical security findings
+- `release` → `completed` requires merge confirmation and release checklist completion
+
+### Schema Definitions & Versioning
+
+- **SD-001**: Task envelopes MUST include a `schema_version` field and validate against versioned JSON/YAML schema
+- **SD-002**: Verification reports MUST include `schema_version`, `task_id`, `test_results`, `criteria_status`, and `recommendation`
+- **SD-003**: Review feedback MUST include `schema_version`, `task_id`, `security_findings`, `code_quality`, and `recommendation`
+- **SD-004**: Schema changes MUST be backward compatible for at least one minor version and include migration notes
 
 ### Key Entities
 
@@ -536,3 +561,16 @@ The Reviewer Agent performs **code review**, distinct from QA verification:
 - SpecKit templates exist and define expected document formats
 - The ops-dashboard is deployed and can be extended for task pipeline visibility
 - Power Automate flow exists for Teams → n8n clarification callback
+
+---
+
+## Release Phase Definition
+
+### Release Checklist
+- **RL-001**: PR merged into the target base branch with required checks green.
+- **RL-002**: Release notes generated (summary of changes + task ID linkage).
+- **RL-003**: Rollback plan recorded (revert commit or feature flag toggle).
+- **RL-004**: Post-merge verification completed (smoke tests or health checks).
+
+### Release Completion Criteria
+- Release phase is marked complete only when RL-001 through RL-004 are satisfied and recorded in the task envelope.

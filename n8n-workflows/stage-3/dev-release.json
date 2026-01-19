@@ -1,0 +1,280 @@
+{
+  "name": "Dev Release",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T080: Input: task_id, pr_url"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T081: Build release prompt with merge instructions\nconst inputData = $input.first().json;\n\nif (!inputData.task_id || !inputData.pr_url) {\n  throw new Error('Missing required fields: task_id and pr_url');\n}\n\n// Extract PR number from URL\nconst prMatch = inputData.pr_url.match(/\\/pull\\/(\\d+)/);\nconst prNumber = prMatch ? prMatch[1] : 'unknown';\n\n// Extract repo from URL (e.g., https://github.com/org/repo/pull/123)\nconst repoMatch = inputData.pr_url.match(/github\\.com\\/([^\\/]+\\/[^\\/]+)/);\nconst repoFullName = repoMatch ? repoMatch[1] : 'unknown';\n\n// Build the system prompt with Dev Agent release behavior\nconst systemPrompt = `You are a Senior Software Engineer completing the release process for an approved PR.\n\n## Behavior: Merge and Release\n\nYou have been assigned to merge an approved pull request. Follow these steps:\n\n1. **Verify PR Status**: Confirm the PR is approved and all checks pass\n2. **Check for Conflicts**: Ensure no merge conflicts exist\n3. **Merge Strategy**: Use squash merge to maintain clean history\n4. **Cleanup**: Delete the feature branch after successful merge\n\n## Git Commands to Execute\n\n\\`\\`\\`bash\n# Verify PR is mergeable\ngh pr view ${prNumber} --repo ${repoFullName} --json mergeable,state,reviews\n\n# Merge with squash\ngh pr merge ${prNumber} --repo ${repoFullName} --squash --delete-branch\n\\`\\`\\`\n\n## Output Format\n\nAfter completing the merge, respond with a YAML block:\n\n\\`\\`\\`yaml\nstatus: merged | conflict | error\nmerge_sha: <the merge commit SHA>\nbranch_deleted: true | false\nerror_message: <if status is error or conflict>\n\\`\\`\\`\n\n## Guidelines\n\n- If there are merge conflicts, report status as 'conflict' with details\n- If the PR is not approved, report status as 'error'\n- Always include the merge SHA on success\n- Confirm branch deletion`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nMerge the approved pull request and complete the release process.\n\n## PR Information\n\n- Task ID: ${inputData.task_id}\n- PR URL: ${inputData.pr_url}\n- PR Number: ${prNumber}\n- Repository: ${repoFullName}\n\n---\n\nPlease verify the PR is ready, merge it using squash merge, and delete the feature branch. Report the results.`;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    pr_url: inputData.pr_url,\n    pr_number: prNumber,\n    repo: repoFullName,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'dev'\n  }\n}];"
+      },
+      "id": "code_build_release_prompt",
+      "name": "Build Release Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T081: Build release prompt with merge instructions"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.AGENT_RUNNER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_agent_runner",
+      "name": "Call Agent Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T082: Call Agent Runner with agent_role=dev"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T083: Parse merge SHA and status from output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Release Prompt').first().json;\n\nif (!agentResponse.success) {\n  return [{\n    json: {\n      success: false,\n      task_id: previousData.task_id,\n      status: 'error',\n      error: agentResponse.error || 'Agent Runner failed'\n    }\n  }];\n}\n\nconst output = agentResponse.output || '';\n\n// Parse the YAML response block\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\n\nif (!yamlMatch) {\n  // Try to extract merge SHA from output text\n  const shaMatch = output.match(/merge.*?([a-f0-9]{40})/i) || output.match(/([a-f0-9]{40})/);\n  const merged = output.toLowerCase().includes('merged') || output.toLowerCase().includes('squash');\n  \n  return [{\n    json: {\n      success: merged,\n      task_id: previousData.task_id,\n      pr_url: previousData.pr_url,\n      status: merged ? 'merged' : 'unknown',\n      merge_sha: shaMatch ? shaMatch[1] : null,\n      raw_output: output\n    }\n  }];\n}\n\n// Parse YAML content\nconst yamlContent = yamlMatch[1];\nconst statusMatch = yamlContent.match(/status:\\s*(merged|conflict|error)/);\nconst shaMatch = yamlContent.match(/merge_sha:\\s*([a-f0-9]+)/);\nconst branchDeletedMatch = yamlContent.match(/branch_deleted:\\s*(true|false)/);\nconst errorMatch = yamlContent.match(/error_message:\\s*(.+)/);\n\nconst status = statusMatch ? statusMatch[1] : 'unknown';\nconst mergeSha = shaMatch ? shaMatch[1] : null;\nconst branchDeleted = branchDeletedMatch ? branchDeletedMatch[1] === 'true' : false;\nconst errorMessage = errorMatch ? errorMatch[1].trim() : null;\n\nreturn [{\n  json: {\n    success: status === 'merged',\n    task_id: previousData.task_id,\n    pr_url: previousData.pr_url,\n    status: status,\n    merge_sha: mergeSha,\n    branch_deleted: branchDeleted,\n    error_message: errorMessage,\n    raw_output: output\n  }\n}];"
+      },
+      "id": "code_parse_merge_result",
+      "name": "Parse Merge Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T083: Parse merge SHA from output"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "merged",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "merged",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "switch_merge_status",
+      "name": "Check Merge Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "T085: Route based on merge status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T084: Prepare task envelope update for successful merge\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'update',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    updates: {\n      status: 'completed',\n      phase: 'release',\n      completed_at: new Date().toISOString(),\n      release: {\n        merge_sha: data.merge_sha,\n        branch_deleted: data.branch_deleted,\n        pr_url: data.pr_url,\n        merged_at: new Date().toISOString()\n      }\n    },\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_success_update",
+      "name": "Prepare Success Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "T084: Update envelope for completed task"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update_success",
+      "name": "Update Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 200],
+      "notes": "T084: Save completed status to blob"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare notification for task completion\nconst data = $('Parse Merge Result').first().json;\n\nreturn [{\n  json: {\n    event_type: 'task_completed',\n    task_id: data.task_id,\n    severity: 'info',\n    title: `Task ${data.task_id} Released`,\n    message: `PR merged successfully. Merge SHA: ${data.merge_sha}`,\n    pr_url: data.pr_url,\n    merge_sha: data.merge_sha\n  }\n}];"
+      },
+      "id": "code_prepare_completion_notification",
+      "name": "Prepare Completion Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_notification_hub",
+      "name": "Notify Completion",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2000, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return success result\nconst data = $('Parse Merge Result').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'release',\n    status: 'completed',\n    merge_sha: data.merge_sha,\n    branch_deleted: data.branch_deleted,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_return_success",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 200],
+      "notes": "Return success with merge details"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T085: Handle merge conflict or error\nconst data = $input.first().json;\n\n// Determine if this is a conflict that needs escalation\nconst needsEscalation = data.status === 'conflict' || \n  (data.status === 'error' && data.error_message?.includes('conflict'));\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    status: data.status,\n    error_message: data.error_message,\n    needs_escalation: needsEscalation,\n    escalation_reason: needsEscalation \n      ? `Merge conflict detected: ${data.error_message || 'Unable to merge PR'}` \n      : `Release failed: ${data.error_message || 'Unknown error'}`\n  }\n}];"
+      },
+      "id": "code_handle_conflict",
+      "name": "Handle Conflict/Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400],
+      "notes": "T085: Handle merge conflict detection"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare escalation notification\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    event_type: 'needs_human',\n    task_id: data.task_id,\n    severity: 'warning',\n    title: `Task ${data.task_id} Needs Human Intervention`,\n    message: data.escalation_reason,\n    pr_url: data.pr_url,\n    status: data.status\n  }\n}];"
+      },
+      "id": "code_prepare_escalation_notification",
+      "name": "Prepare Escalation Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_notification_escalate",
+      "name": "Notify Escalation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1780, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return failure with escalation details\nconst data = $('Handle Conflict/Error').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    phase: 'release',\n    status: data.status,\n    error: data.escalation_reason,\n    needs_escalation: data.needs_escalation,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_return_failure",
+      "name": "Return Failure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 400],
+      "notes": "Return failure with escalation info"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 560],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'release',\n    error: error.message || 'Unknown error in Dev Release workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 560]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Build Release Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Release Prompt": {
+      "main": [
+        [{ "node": "Call Agent Runner", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Agent Runner": {
+      "main": [
+        [{ "node": "Parse Merge Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Merge Result": {
+      "main": [
+        [{ "node": "Check Merge Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Merge Status": {
+      "main": [
+        [{ "node": "Prepare Success Update", "type": "main", "index": 0 }],
+        [{ "node": "Handle Conflict/Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Success Update": {
+      "main": [
+        [{ "node": "Update Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Task Envelope": {
+      "main": [
+        [{ "node": "Prepare Completion Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Completion Notification": {
+      "main": [
+        [{ "node": "Notify Completion", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Completion": {
+      "main": [
+        [{ "node": "Return Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Conflict/Error": {
+      "main": [
+        [{ "node": "Prepare Escalation Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Escalation Notification": {
+      "main": [
+        [{ "node": "Notify Escalation", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Escalation": {
+      "main": [
+        [{ "node": "Return Failure", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-3" },
+    { "name": "dev-agent" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "dev-release",
+    "instanceId": "autonomous-dev-team"
+  }
+}

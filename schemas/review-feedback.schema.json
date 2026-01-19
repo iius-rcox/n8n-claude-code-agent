@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ii-us.github.io/schemas/review-feedback/v1.0.0",
+  "title": "ReviewFeedback",
+  "description": "Reviewer Agent output for code review with security focus",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "pr_url",
+    "reviewed_at",
+    "overall_assessment",
+    "security_findings",
+    "code_quality"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.0.0",
+      "description": "Schema version for migration support"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^FEAT-\\d{8}-[a-z0-9]{6}$",
+      "description": "Associated task identifier"
+    },
+    "pr_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the PR being reviewed"
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when review was completed"
+    },
+    "cycle": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which review cycle this is (1-2)"
+    },
+    "verification_status": {
+      "type": "string",
+      "enum": ["passed", "not_verified"],
+      "description": "Whether QA verification passed before review"
+    },
+    "overall_assessment": {
+      "type": "string",
+      "enum": ["approve", "request_changes"],
+      "description": "Final review decision"
+    },
+    "security_findings": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["clear", "warnings", "critical"],
+          "description": "Overall security status"
+        },
+        "vulnerabilities": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["id", "severity", "category", "description"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^SEC\\d{3}$",
+                "description": "Vulnerability identifier"
+              },
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low"],
+                "description": "Severity level"
+              },
+              "category": {
+                "type": "string",
+                "description": "OWASP category or vulnerability type"
+              },
+              "description": {
+                "type": "string",
+                "description": "Detailed description of the vulnerability"
+              },
+              "location": {
+                "type": "string",
+                "description": "File path and line number"
+              },
+              "recommendation": {
+                "type": "string",
+                "description": "How to fix the vulnerability"
+              },
+              "cwe_id": {
+                "type": "string",
+                "pattern": "^CWE-\\d+$",
+                "description": "Common Weakness Enumeration ID if applicable"
+              }
+            }
+          }
+        },
+        "owasp_checks": {
+          "type": "array",
+          "description": "OWASP Top 10 checks performed",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["pass", "fail", "not_applicable"]
+              },
+              "notes": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "code_quality": {
+      "type": "object",
+      "required": ["rating"],
+      "properties": {
+        "rating": {
+          "type": "string",
+          "enum": ["excellent", "good", "acceptable", "needs_improvement", "poor"],
+          "description": "Overall code quality rating"
+        },
+        "follows_conventions": {
+          "type": "boolean",
+          "description": "Whether code follows project conventions"
+        },
+        "test_coverage_adequate": {
+          "type": "boolean",
+          "description": "Whether test coverage is sufficient"
+        },
+        "documentation_adequate": {
+          "type": "boolean",
+          "description": "Whether documentation is sufficient"
+        }
+      }
+    },
+    "comments": {
+      "type": "array",
+      "default": [],
+      "description": "Inline review comments",
+      "items": {
+        "type": "object",
+        "required": ["id", "file", "severity", "comment"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^R\\d{3}$",
+            "description": "Comment identifier (e.g., R001)"
+          },
+          "file": {
+            "type": "string",
+            "description": "File path"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Line number"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["blocking", "suggestion", "nit"],
+            "description": "Comment severity"
+          },
+          "comment": {
+            "type": "string",
+            "description": "The review comment"
+          },
+          "suggestion": {
+            "type": "string",
+            "description": "Suggested code change if applicable"
+          }
+        }
+      }
+    },
+    "feedback_for_dev": {
+      "type": "string",
+      "description": "Prioritized summary of changes needed"
+    },
+    "blocking_issues_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of blocking issues that must be resolved"
+    }
+  }
+}

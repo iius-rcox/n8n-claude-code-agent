@@ -1,0 +1,290 @@
+{
+  "name": "Reviewer",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T109: Input: task_id, pr_url, verification_status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T110: Prepare to download verification report\nconst data = $input.first().json;\n\nif (!data.task_id || !data.pr_url) {\n  throw new Error('Missing required fields: task_id and pr_url');\n}\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-verification',\n    blob_path: `${data.task_id}/verification-report-1.json`,\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    verification_status: data.verification_status || 'passed'\n  }\n}];"
+      },
+      "id": "code_prepare_download",
+      "name": "Prepare Verification Download",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T110: Prepare download request for verification report"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_download",
+      "name": "Download Verification Report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T110: Download verification report via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T111: Build reviewer prompt\nconst downloadResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nlet verificationSummary = 'No verification report available';\nif (downloadResult.success && downloadResult.content) {\n  try {\n    const report = JSON.parse(downloadResult.content);\n    verificationSummary = `\n- Test Results: ${report.test_results?.passed || 0} passed, ${report.test_results?.failed || 0} failed\n- Recommendation: ${report.recommendation || 'N/A'}\n- Issues Found: ${report.issues_count || 0}`;\n  } catch (e) {\n    verificationSummary = downloadResult.content.substring(0, 500);\n  }\n}\n\n// Build the system prompt with Reviewer Agent behavior\nconst systemPrompt = `You are a Senior Staff Engineer conducting code reviews. Your role is to ensure code quality, security, and adherence to standards.\n\n## Behavior: Code Review\n\nYou will review the PR with focus on:\n1. **Code Correctness**: Logic errors, edge cases, null handling\n2. **Security**: OWASP top 10, injection risks, auth issues, exposed secrets\n3. **Performance**: N+1 queries, memory leaks, inefficient algorithms\n4. **Code Quality**: Readability, naming, DRY violations\n5. **Test Coverage**: Adequate tests for changes\n\n## Output Format\n\nYour response MUST include a YAML block with the review feedback:\n\n\\`\\`\\`yaml\noverall_assessment: approve | request_changes\n\ncomments:\n  - file: \"path/to/file.ts\"\n    line: 42\n    severity: blocking | suggestion\n    issue: \"Description of the concern\"\n    suggestion: \"How to fix it\"\n    \nsecurity_concerns:\n  - severity: critical | high | medium | low\n    description: \"Security issue description\"\n    cwe: \"CWE-XXX (if applicable)\"\n    \nfeedback_for_dev: \"Prioritized list of changes needed (if request_changes)\"\n\\`\\`\\`\n\n## Critical Security Detection (FR-013)\n\nIf you detect ANY of these, immediately set overall_assessment to request_changes:\n- Hardcoded secrets/API keys\n- SQL injection vulnerabilities\n- Cross-site scripting (XSS) risks\n- Authentication bypass possibilities\n- Insecure deserialization\n- Command injection\n\n## Guidelines\n\n- Focus on issues that could cause bugs or security vulnerabilities\n- Be specific: reference exact files and line numbers\n- Distinguish between blocking issues and suggestions\n- Approve if code is production-ready, even with minor suggestions`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nReview the code changes in this PR.\n\n## PR Information\n\n- Task ID: ${inputData.task_id}\n- PR URL: ${inputData.pr_url}\n\n## Verification Status\n${verificationSummary}\n\n## Instructions\n\n1. Fetch the PR diff using: \\`gh pr diff ${inputData.pr_url.match(/\\/pull\\/(\\d+)/)?.[1] || 'unknown'}\\`\n2. Review each changed file for the criteria above\n3. Check for security vulnerabilities\n4. Provide specific, actionable feedback\n\n---\n\nPlease review the PR and provide your assessment.`;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    pr_url: inputData.pr_url,\n    verification_summary: verificationSummary,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'reviewer'\n  }\n}];"
+      },
+      "id": "code_build_prompt",
+      "name": "Build Review Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T111: Build prompt using reviewer-agent.md template"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.AGENT_RUNNER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_agent_runner",
+      "name": "Call Agent Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1120, 300],
+      "notes": "T112: Call Agent Runner with agent_role=reviewer"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T113: Parse review feedback from output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Review Prompt').first().json;\n\nif (!agentResponse.success) {\n  return [{\n    json: {\n      success: false,\n      task_id: previousData.task_id,\n      error: agentResponse.error || 'Agent Runner failed',\n      approved: false\n    }\n  }];\n}\n\nconst output = agentResponse.output || '';\n\n// Parse the YAML review feedback\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\n\nlet review = {\n  overall_assessment: 'request_changes',\n  comments: [],\n  security_concerns: [],\n  feedback_for_dev: 'Unable to parse review feedback'\n};\n\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse overall_assessment\n  const assessmentMatch = yamlContent.match(/overall_assessment:\\s*(approve|request_changes)/);\n  review.overall_assessment = assessmentMatch ? assessmentMatch[1] : 'request_changes';\n  \n  // Parse feedback\n  const feedbackMatch = yamlContent.match(/feedback_for_dev:\\s*[\"']?([^\\n\"']+)[\"']?/);\n  review.feedback_for_dev = feedbackMatch ? feedbackMatch[1].trim() : '';\n  \n  // Check for security concerns (T116)\n  const securityMatch = yamlContent.match(/security_concerns:[\\s\\S]*?(?=feedback_for_dev:|$)/);\n  if (securityMatch) {\n    const criticalMatch = securityMatch[0].match(/severity:\\s*critical/gi);\n    if (criticalMatch && criticalMatch.length > 0) {\n      // T116: Critical security - force request_changes and flag escalation\n      review.overall_assessment = 'request_changes';\n      review.has_critical_security = true;\n      review.security_concerns = criticalMatch.map(() => ({ severity: 'critical' }));\n    }\n  }\n  \n  // Count blocking comments\n  const blockingMatches = yamlContent.match(/severity:\\s*blocking/gi);\n  review.blocking_count = blockingMatches ? blockingMatches.length : 0;\n}\n\n// Determine if approved\nconst approved = review.overall_assessment === 'approve' && !review.has_critical_security;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: previousData.task_id,\n    pr_url: previousData.pr_url,\n    approved: approved,\n    review: review,\n    overall_assessment: review.overall_assessment,\n    has_critical_security: review.has_critical_security || false,\n    blocking_count: review.blocking_count || 0,\n    feedback: review.feedback_for_dev,\n    raw_output: output\n  }\n}];"
+      },
+      "id": "code_parse_review",
+      "name": "Parse Review Feedback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "T113: Parse review feedback (overall_assessment, comments, security_concerns)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T115: Prepare upload for review report\nconst data = $input.first().json;\n\n// Get cycle count (simplified - would track from envelope)\nconst cycle = 1;\n\nconst reportContent = JSON.stringify({\n  task_id: data.task_id,\n  pr_url: data.pr_url,\n  timestamp: new Date().toISOString(),\n  cycle: cycle,\n  approved: data.approved,\n  overall_assessment: data.overall_assessment,\n  has_critical_security: data.has_critical_security,\n  blocking_count: data.blocking_count,\n  feedback: data.feedback\n}, null, 2);\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-review',\n    blob_path: `${data.task_id}/review-report-${cycle}.json`,\n    content: reportContent,\n    content_type: 'application/json',\n    task_id: data.task_id,\n    approved: data.approved,\n    overall_assessment: data.overall_assessment,\n    has_critical_security: data.has_critical_security,\n    feedback: data.feedback,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_prepare_upload",
+      "name": "Prepare Review Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "notes": "T115: Build upload request for review report"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_upload",
+      "name": "Upload Review Report",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1780, 300],
+      "notes": "T115: Upload report to agent-review container"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $('Prepare Review Upload').first().json.has_critical_security }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_critical_security",
+      "name": "Critical Security?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "T116: Check for critical security vulnerabilities"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T116: Immediate escalation for critical security\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    event_type: 'needs_human',\n    task_id: data.task_id,\n    severity: 'critical',\n    title: `CRITICAL SECURITY: Task ${data.task_id}`,\n    message: 'Critical security vulnerability detected in code review. Immediate human review required.',\n    pr_url: data.pr_url,\n    escalation_reason: 'critical_security_vulnerability'\n  }\n}];"
+      },
+      "id": "code_security_escalation",
+      "name": "Prepare Security Escalation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 200],
+      "notes": "T116: Prepare immediate escalation notification"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_notification_security",
+      "name": "Notify Security Issue",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2440, 200],
+      "notes": "T116: Send critical security alert"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return escalated result\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: false,\n    escalated: true,\n    escalation_reason: 'critical_security_vulnerability',\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
+      },
+      "id": "code_return_escalated",
+      "name": "Return Escalated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $('Prepare Review Upload').first().json.approved }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_approved",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2220, 400],
+      "notes": "T117: Route based on approval status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T117: Return approved result\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: true,\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
+      },
+      "id": "code_return_approved",
+      "name": "Return Approved",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 350],
+      "notes": "T117: Return approved for routing"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T117: Return request_changes result with feedback\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: false,\n    feedback: data.feedback,\n    blocking_count: data.blocking_count,\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
+      },
+      "id": "code_return_changes",
+      "name": "Return Request Changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 480],
+      "notes": "T117: Return request_changes with feedback for routing"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'review',\n    approved: false,\n    error: error.message || 'Unknown error in Reviewer workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 600]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Verification Download", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Verification Download": {
+      "main": [
+        [{ "node": "Download Verification Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Verification Report": {
+      "main": [
+        [{ "node": "Build Review Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Review Prompt": {
+      "main": [
+        [{ "node": "Call Agent Runner", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Agent Runner": {
+      "main": [
+        [{ "node": "Parse Review Feedback", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Review Feedback": {
+      "main": [
+        [{ "node": "Prepare Review Upload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Review Upload": {
+      "main": [
+        [{ "node": "Upload Review Report", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload Review Report": {
+      "main": [
+        [{ "node": "Critical Security?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Critical Security?": {
+      "main": [
+        [{ "node": "Prepare Security Escalation", "type": "main", "index": 0 }],
+        [{ "node": "Approved?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Security Escalation": {
+      "main": [
+        [{ "node": "Notify Security Issue", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Security Issue": {
+      "main": [
+        [{ "node": "Return Escalated", "type": "main", "index": 0 }]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [{ "node": "Return Approved", "type": "main", "index": 0 }],
+        [{ "node": "Return Request Changes", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-4" },
+    { "name": "reviewer-agent" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "reviewer",
+    "instanceId": "autonomous-dev-team"
+  }
+}

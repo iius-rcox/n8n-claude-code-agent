@@ -1,0 +1,323 @@
+{
+  "name": "PM Tasks",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T057: Input: task_id"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T058: Prepare requests to download spec.md and plan.md\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    spec_request: {\n      operation: 'download',\n      container: 'agent-spec',\n      blob_path: `${data.task_id}/spec.md`\n    },\n    plan_request: {\n      operation: 'download',\n      container: 'agent-spec',\n      blob_path: `${data.task_id}/plan.md`\n    },\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_downloads",
+      "name": "Prepare Downloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T058: Prepare download requests for spec.md and plan.md"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_download_spec",
+      "name": "Download spec.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 200],
+      "notes": "T058: Download spec.md"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_download_plan",
+      "name": "Download plan.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 400],
+      "notes": "T058: Download plan.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract spec download request\nconst data = $input.first().json;\nreturn [{ json: data.spec_request }];"
+      },
+      "id": "code_extract_spec_request",
+      "name": "Extract Spec Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract plan download request\nconst data = $('Prepare Downloads').first().json;\nreturn [{ json: data.plan_request }];"
+      },
+      "id": "code_extract_plan_request",
+      "name": "Extract Plan Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {},
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_downloads",
+      "name": "Merge Downloads",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [900, 300],
+      "notes": "Combine spec and plan content"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T059: Build tasks prompt with /speckit.tasks behavior\nconst items = $input.all();\nconst inputData = $('Prepare Downloads').first().json;\n\n// Find spec and plan content from merged results\nlet specContent = '';\nlet planContent = '';\n\nfor (const item of items) {\n  if (item.json.blob_path?.includes('spec.md')) {\n    specContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('plan.md')) {\n    planContent = item.json.content || '';\n  }\n}\n\nif (!specContent) {\n  throw new Error('Failed to download spec.md');\n}\nif (!planContent) {\n  throw new Error('Failed to download plan.md');\n}\n\n// Build the system prompt with PM Agent task generation behavior\nconst systemPrompt = `You are a Senior Technical Project Manager. Your current task is to generate an ordered task list from a specification and implementation plan.\n\n## Behavior: /speckit.tasks\n\nCreate a tasks.md document with:\n1. **Tasks**: Ordered list of implementation tasks (max 15)\n   - Each task has: ID (T001, T002...), description, files to modify, test requirements, dependencies\n   - Mark tasks that can run in parallel with [P]\n   - Each task should be completable in one dev session (~2-4 hours)\n2. **Task Format**:\n   \\`\\`\\`\n   - [ ] T001 [P?] Description of task\n     - Files: file1.ts, file2.ts\n     - Tests: Unit tests for...\n     - Depends on: (none or T00X)\n   \\`\\`\\`\n3. **Dependency Graph**: Which tasks depend on others\n4. **Estimated Complexity**: simple | moderate | complex\n\n## Output Format\n\nYour response MUST be a complete Markdown document following the SpecKit tasks.md template format.\n\n## Guidelines\n\n- Tasks should be atomic and focused\n- Include test requirements for each task\n- Mark parallelizable tasks with [P]\n- Don't exceed 15 tasks - split into phases if needed\n- Reference specific files from the plan\n- Order tasks by dependency (independent tasks first)`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nGenerate an implementation task list from the following specification and plan.\n\n## Specification (spec.md)\n\n${specContent}\n\n---\n\n## Implementation Plan (plan.md)\n\n${planContent}\n\n---\n\nPlease generate a complete tasks.md document with ordered, dependency-aware tasks.`;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    spec_content: specContent,\n    plan_content: planContent,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'pm'\n  }\n}];"
+      },
+      "id": "code_build_tasks_prompt",
+      "name": "Build Tasks Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "T059: PM Agent tasks prompt with /speckit.tasks behavior"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.AGENT_RUNNER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_agent_runner",
+      "name": "Call Agent Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1340, 300],
+      "notes": "T060: Call Agent Runner with agent_role=pm"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T060-T062: Parse tasks.md output and extract task count\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Tasks Prompt').first().json;\n\nif (!agentResponse.success) {\n  throw new Error(`Agent Runner failed: ${agentResponse.error || 'Unknown error'}`);\n}\n\nconst output = agentResponse.output || '';\n\n// Clean up any code fence wrappers\nlet tasksContent = output;\nif (tasksContent.startsWith('```markdown')) {\n  tasksContent = tasksContent.replace(/^```markdown\\n?/, '').replace(/\\n?```$/, '');\n} else if (tasksContent.startsWith('```')) {\n  tasksContent = tasksContent.replace(/^```\\n?/, '').replace(/\\n?```$/, '');\n}\n\n// T062: Extract task count by counting task entries\n// Look for patterns like \"- [ ] T001\" or \"- [ ] T01\"\nconst taskMatches = tasksContent.match(/- \\[ \\] T\\d+/g) || [];\nconst totalTasks = taskMatches.length;\n\n// Also try to extract complexity if present\nlet complexity = 'moderate';\nconst complexityMatch = tasksContent.match(/complexity[:\\s]*(simple|moderate|complex)/i);\nif (complexityMatch) {\n  complexity = complexityMatch[1].toLowerCase();\n}\n\nreturn [{\n  json: {\n    task_id: previousData.task_id,\n    tasks_content: tasksContent.trim(),\n    total_tasks: totalTasks,\n    complexity: complexity,\n    raw_output: output\n  }\n}];"
+      },
+      "id": "code_parse_tasks",
+      "name": "Parse Tasks Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "notes": "T060-T062: Parse tasks.md and extract task count"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T061: Prepare tasks.md upload request for Blob State Manager\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-spec',\n    blob_path: `${data.task_id}/tasks.md`,\n    content: data.tasks_content,\n    content_type: 'text/markdown',\n    task_id: data.task_id,\n    total_tasks: data.total_tasks,\n    complexity: data.complexity\n  }\n}];"
+      },
+      "id": "code_prepare_upload",
+      "name": "Prepare Tasks Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "notes": "T061: Build upload request for tasks.md"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_upload_tasks",
+      "name": "Upload tasks.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2000, 300],
+      "notes": "T061: Upload tasks.md to agent-spec container"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T062: Prepare task envelope update with total_tasks\nconst uploadData = $('Prepare Tasks Upload').first().json;\n\nreturn [{\n  json: {\n    operation: 'read',\n    task_id: uploadData.task_id,\n    total_tasks: uploadData.total_tasks,\n    complexity: uploadData.complexity\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_read",
+      "name": "Prepare Envelope Read",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300],
+      "notes": "T062: Read current envelope for update"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_read_envelope",
+      "name": "Read Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2440, 300],
+      "notes": "Read current task envelope"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T062: Update task envelope with total_tasks and complete planning phase\nconst readResult = $input.first().json;\nconst uploadData = $('Prepare Tasks Upload').first().json;\n\nif (!readResult.success) {\n  throw new Error(`Failed to read task envelope: ${readResult.error || 'Unknown error'}`);\n}\n\nconst envelope = readResult.task_envelope;\nconst now = new Date().toISOString();\n\n// Update phases.planning to completed\nenvelope.phases.planning = {\n  status: 'completed',\n  started_at: envelope.phases.planning?.started_at || now,\n  completed_at: now,\n  agent_invocations: (envelope.phases.planning?.agent_invocations || 0) + 1,\n  output_paths: [\n    `agent-spec/${uploadData.task_id}/plan.md`,\n    `agent-spec/${uploadData.task_id}/tasks.md`\n  ]\n};\n\n// Update implementation phase with total_tasks\nenvelope.phases.implementation = {\n  status: 'pending',\n  current_task: 0,\n  total_tasks: uploadData.total_tasks\n};\n\n// Update current state to implementation\nenvelope.status = 'in_progress';\nenvelope.phase = 'implementation';\nenvelope.current_agent = 'dev';\nenvelope.version = (envelope.version || 1) + 1;\n\n// Store complexity in metadata\nenvelope.metadata = envelope.metadata || {};\nenvelope.metadata.complexity = uploadData.complexity;\n\nreturn [{\n  json: {\n    operation: 'update',\n    task_id: uploadData.task_id,\n    task_envelope: envelope,\n    total_tasks: uploadData.total_tasks,\n    complexity: uploadData.complexity\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_update",
+      "name": "Prepare Envelope Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 300],
+      "notes": "T062: Update envelope with total_tasks"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update_envelope",
+      "name": "Update Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2880, 300],
+      "notes": "T062: Update envelope via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return success result\nconst updateData = $('Prepare Envelope Update').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: updateData.task_id,\n    phase: 'planning',\n    status: 'completed',\n    next_phase: 'implementation',\n    tasks_path: `agent-spec/${updateData.task_id}/tasks.md`,\n    total_tasks: updateData.total_tasks,\n    complexity: updateData.complexity\n  }\n}];"
+      },
+      "id": "code_return_success",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 300],
+      "notes": "Return success with task count"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'task_generation',\n    error: error.message || 'Unknown error in PM Tasks workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Downloads", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Downloads": {
+      "main": [
+        [
+          { "node": "Extract Spec Request", "type": "main", "index": 0 },
+          { "node": "Extract Plan Request", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Spec Request": {
+      "main": [
+        [{ "node": "Download spec.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Plan Request": {
+      "main": [
+        [{ "node": "Download plan.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download spec.md": {
+      "main": [
+        [{ "node": "Merge Downloads", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download plan.md": {
+      "main": [
+        [{ "node": "Merge Downloads", "type": "main", "index": 1 }]
+      ]
+    },
+    "Merge Downloads": {
+      "main": [
+        [{ "node": "Build Tasks Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Tasks Prompt": {
+      "main": [
+        [{ "node": "Call Agent Runner", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Agent Runner": {
+      "main": [
+        [{ "node": "Parse Tasks Output", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Tasks Output": {
+      "main": [
+        [{ "node": "Prepare Tasks Upload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Tasks Upload": {
+      "main": [
+        [{ "node": "Upload tasks.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload tasks.md": {
+      "main": [
+        [{ "node": "Prepare Envelope Read", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Read": {
+      "main": [
+        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Task Envelope": {
+      "main": [
+        [{ "node": "Prepare Envelope Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Update": {
+      "main": [
+        [{ "node": "Update Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Task Envelope": {
+      "main": [
+        [{ "node": "Return Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-2" },
+    { "name": "pm-agent" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "pm-tasks",
+    "instanceId": "autonomous-dev-team"
+  }
+}

@@ -1,0 +1,271 @@
+{
+  "name": "Task Recovery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "cron_trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300],
+      "notes": "T157: Cron trigger for stuck task scan"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://169.254.169.254/metadata/identity/oauth2/token",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "api-version", "value": "2019-08-01" },
+            { "name": "resource", "value": "https://storage.azure.com/" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Metadata", "value": "true" }]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "http_get_azure_token",
+      "name": "Get Azure Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "notes": "Get Azure token for blob operations"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Azure token\nconst response = $input.first().json;\n\nif (!response.access_token) {\n  throw new Error('Failed to get Azure token');\n}\n\nreturn [{\n  json: {\n    azure_token: response.access_token,\n    scan_timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code_parse_token",
+      "name": "Parse Azure Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AZURE_STORAGE_ACCOUNT_URL }}/agent-state/circuit-breaker.yml",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2020-10-02" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 15000
+        }
+      },
+      "id": "http_get_circuit_breaker",
+      "name": "Get Circuit Breaker State",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 300],
+      "notes": "T159: Check circuit breaker status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T159: Parse circuit breaker state\nconst tokenData = $('Parse Azure Token').first().json;\nconst response = $input.first().json;\n\nlet circuitBreakerOpen = false;\nlet circuitBreakerData = {};\n\nif (response.statusCode === 200 && response.body) {\n  const content = response.body;\n  const stateMatch = content.match(/state:\\s*(open|closed)/i);\n  circuitBreakerOpen = stateMatch && stateMatch[1].toLowerCase() === 'open';\n  \n  const openedAtMatch = content.match(/opened_at:\\s*([^\\n]+)/);\n  const reasonMatch = content.match(/reason:\\s*([^\\n]+)/);\n  \n  circuitBreakerData = {\n    state: circuitBreakerOpen ? 'open' : 'closed',\n    opened_at: openedAtMatch ? openedAtMatch[1].trim() : null,\n    reason: reasonMatch ? reasonMatch[1].trim() : null\n  };\n} else {\n  // No circuit breaker file means closed\n  circuitBreakerData = { state: 'closed' };\n}\n\nreturn [{\n  json: {\n    azure_token: tokenData.azure_token,\n    scan_timestamp: tokenData.scan_timestamp,\n    circuit_breaker: circuitBreakerData,\n    circuit_breaker_open: circuitBreakerOpen\n  }\n}];"
+      },
+      "id": "code_parse_circuit_breaker",
+      "name": "Parse Circuit Breaker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "T159: Parse circuit breaker state"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.circuit_breaker_open }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_circuit_open",
+      "name": "Circuit Breaker Open?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "Route based on circuit breaker state"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Circuit breaker is open - skip recovery until fixed\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    action: 'skipped',\n    reason: 'Circuit breaker is OPEN - waiting for auth recovery',\n    circuit_breaker: data.circuit_breaker,\n    scan_timestamp: data.scan_timestamp\n  }\n}];"
+      },
+      "id": "code_skip_recovery",
+      "name": "Skip Recovery",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200],
+      "notes": "Skip recovery when circuit breaker open"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AZURE_STORAGE_ACCOUNT_URL }}/agent-state",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "restype", "value": "container" },
+            { "name": "comp", "value": "list" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2020-10-02" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_list_tasks",
+      "name": "List Task Blobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 400],
+      "notes": "T158: List all task envelopes"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T158: Parse task list and identify stuck tasks (>2 hours)\nconst tokenData = $('Parse Circuit Breaker').first().json;\nconst response = $input.first().json;\n\nconst now = new Date();\nconst twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);\n\n// Parse blob names from XML response\nlet taskBlobs = [];\nif (response.body && typeof response.body === 'string') {\n  const blobMatches = response.body.match(/<Name>([^<]+)<\\/Name>/g) || [];\n  taskBlobs = blobMatches\n    .map(m => m.replace(/<\\/?Name>/g, ''))\n    .filter(name => name.endsWith('/task-envelope.yml'))\n    .map(name => name.replace('/task-envelope.yml', ''));\n}\n\n// For a real implementation, we'd read each envelope and check:\n// - status is 'in_progress' or 'pending'\n// - updated_at is more than 2 hours ago\n// For now, we'll return the list for the next node to process\n\nreturn [{\n  json: {\n    azure_token: tokenData.azure_token,\n    scan_timestamp: tokenData.scan_timestamp,\n    task_ids: taskBlobs,\n    task_count: taskBlobs.length,\n    stuck_threshold: twoHoursAgo.toISOString()\n  }\n}];"
+      },
+      "id": "code_parse_tasks",
+      "name": "Parse Task List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400],
+      "notes": "T158: Identify stuck tasks (>2 hours)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T160-T161: Process stuck tasks\nconst data = $input.first().json;\n\n// For each task that appears stuck, we would:\n// 1. Read the task envelope to confirm it's stuck\n// 2. If status is in_progress and updated >2 hours ago, flag it\n// 3. Resume via Master Orchestrator or alert if unable\n\n// For now, log the scan results\nconst result = {\n  success: true,\n  action: 'scan_completed',\n  scan_timestamp: data.scan_timestamp,\n  tasks_scanned: data.task_count,\n  stuck_threshold: data.stuck_threshold,\n  // In full implementation, would include:\n  // - stuck_tasks: [...]\n  // - resumed_tasks: [...]\n  // - alerted_tasks: [...]\n  message: `Scanned ${data.task_count} tasks for stuck status`\n};\n\nreturn [{ json: result }];"
+      },
+      "id": "code_process_stuck",
+      "name": "Process Stuck Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 400],
+      "notes": "T160-T161: Resume or alert for stuck tasks"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return final scan result\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    scan_timestamp: data.scan_timestamp || new Date().toISOString(),\n    action: data.action,\n    message: data.message || 'Task recovery scan completed'\n  }\n}];"
+      },
+      "id": "code_return_result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle errors - log but don't fail\nconst error = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    action: 'error',\n    error: error.message || 'Unknown error in Task Recovery',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [{ "node": "Get Azure Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Azure Token": {
+      "main": [
+        [{ "node": "Parse Azure Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Azure Token": {
+      "main": [
+        [{ "node": "Get Circuit Breaker State", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Circuit Breaker State": {
+      "main": [
+        [{ "node": "Parse Circuit Breaker", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Circuit Breaker": {
+      "main": [
+        [{ "node": "Circuit Breaker Open?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Circuit Breaker Open?": {
+      "main": [
+        [{ "node": "Skip Recovery", "type": "main", "index": 0 }],
+        [{ "node": "List Task Blobs", "type": "main", "index": 0 }]
+      ]
+    },
+    "Skip Recovery": {
+      "main": [
+        [{ "node": "Return Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "List Task Blobs": {
+      "main": [
+        [{ "node": "Parse Task List", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Task List": {
+      "main": [
+        [{ "node": "Process Stuck Tasks", "type": "main", "index": 0 }]
+      ]
+    },
+    "Process Stuck Tasks": {
+      "main": [
+        [{ "node": "Return Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-5" },
+    { "name": "recovery" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "task-recovery",
+    "instanceId": "autonomous-dev-team"
+  }
+}

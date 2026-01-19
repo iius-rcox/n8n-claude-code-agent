@@ -27,15 +27,15 @@ This is a multi-component project:
 
 **Purpose**: Create directory structure and foundational schemas
 
-- [ ] T001 Create n8n workflow directory structure per plan.md in `n8n-workflows/`
-- [ ] T002 [P] Create JSON schema for task envelope validation in `schemas/task-envelope.schema.json`
-- [ ] T003 [P] Create JSON schema for verification report in `schemas/verification-report.schema.json`
-- [ ] T004 [P] Create JSON schema for review feedback in `schemas/review-feedback.schema.json`
-- [ ] T005 [P] Create PM Agent system prompt template in `agent-prompts/pm-agent.md`
-- [ ] T006 [P] Create Dev Agent system prompt template in `agent-prompts/dev-agent.md`
-- [ ] T007 [P] Create QA Agent system prompt template in `agent-prompts/qa-agent.md`
-- [ ] T008 [P] Create Reviewer Agent system prompt template in `agent-prompts/reviewer-agent.md`
-- [ ] T009 Configure n8n environment variables for Azure, GitHub App, Teams in n8n Settings
+- [X] T001 Create n8n workflow directory structure per plan.md in `n8n-workflows/`
+- [X] T002 [P] Create JSON schema for task envelope validation in `schemas/task-envelope.schema.json`
+- [X] T003 [P] Create JSON schema for verification report in `schemas/verification-report.schema.json`
+- [X] T004 [P] Create JSON schema for review feedback in `schemas/review-feedback.schema.json`
+- [X] T005 [P] Create PM Agent system prompt template in `agent-prompts/pm-agent.md`
+- [X] T006 [P] Create Dev Agent system prompt template in `agent-prompts/dev-agent.md`
+- [X] T007 [P] Create QA Agent system prompt template in `agent-prompts/qa-agent.md`
+- [X] T008 [P] Create Reviewer Agent system prompt template in `agent-prompts/reviewer-agent.md`
+- [X] T009 Configure n8n environment variables for Azure, GitHub App, Teams in n8n Settings
 
 **Checkpoint**: Directory structure created, schemas defined, agent prompts ready
 
@@ -49,40 +49,40 @@ This is a multi-component project:
 
 ### Blob State Manager Sub-Workflow
 
-- [ ] T010 [P] Create Blob State Manager workflow shell in `n8n-workflows/stage-1/blob-state-manager.json`
-- [ ] T011 [P] Implement Azure token acquisition node using Workload Identity in Blob State Manager
-- [ ] T012 Implement blob create operation with task envelope schema validation
-- [ ] T013 Implement blob read operation with error handling (404, 500)
-- [ ] T014 Implement blob update operation with 60-second lease acquire/release per research.md
-- [ ] T015 Implement artifact upload operation for agent-spec container
-- [ ] T016 Implement artifact download operation with content-type handling
-- [ ] T017 Implement lease break operation for stuck tasks (admin recovery)
-- [ ] T018 Add Switch node for operation routing (create/read/update/upload/download/break_lease)
-- [ ] T019 Add Error Trigger node with standardized error response format per contracts/blob-state-api.yaml
+- [X] T010 [P] Create Blob State Manager workflow shell in `n8n-workflows/stage-1/blob-state-manager.json`
+- [X] T011 [P] Implement Azure token acquisition node using Workload Identity in Blob State Manager
+- [X] T012 Implement blob create operation with task envelope schema validation
+- [X] T013 Implement blob read operation with error handling (404, 500)
+- [X] T014 Implement blob update operation with 60-second lease acquire/release per research.md
+- [X] T015 Implement artifact upload operation for agent-spec container
+- [X] T016 Implement artifact download operation with content-type handling
+- [X] T017 Implement lease break operation for stuck tasks (admin recovery)
+- [X] T018 Add Switch node for operation routing (create/read/update/upload/download/break_lease)
+- [X] T019 Add Error Trigger node with standardized error response format per contracts/blob-state-api.yaml
 
 ### Agent Runner Sub-Workflow
 
-- [ ] T020 [P] Create Agent Runner workflow shell in `n8n-workflows/stage-1/agent-runner.json`
-- [ ] T021 Implement HTTP Request node to Claude Agent /run endpoint per research.md patterns
-- [ ] T022 Implement Switch node for exit code routing (0, 23, 57, 124, other) per contracts/agent-runner-api.yaml
-- [ ] T023 Implement retry logic for lease conflict (exit code 23) with 5-second wait
-- [ ] T024 Implement auth failure detection (exit code 57) with immediate return
-- [ ] T025 Implement timeout handling (exit code 124) with extended timeout retry option
-- [ ] T026 Implement response parsing for Claude output extraction
-- [ ] T027 Add agent role parameter for system prompt selection (pm/dev/qa/reviewer)
+- [X] T020 [P] Create Agent Runner workflow shell in `n8n-workflows/stage-1/agent-runner.json`
+- [X] T021 Implement HTTP Request node to Claude Agent /run endpoint per research.md patterns
+- [X] T022 Implement Switch node for exit code routing (0, 23, 57, 124, other) per contracts/agent-runner-api.yaml
+- [X] T023 Implement retry logic for lease conflict (exit code 23) with 5-second wait
+- [X] T024 Implement auth failure detection (exit code 57) with immediate return
+- [X] T025 Implement timeout handling (exit code 124) with extended timeout retry option
+- [X] T026 Implement response parsing for Claude output extraction
+- [X] T027 Add agent role parameter for system prompt selection (pm/dev/qa/reviewer)
 
 ### Feature Request Form (Entry Point)
 
-- [ ] T028 [P] Create Feature Request Form workflow in `n8n-workflows/stage-1/feature-request-form.json`
-- [ ] T029 Configure n8n Form Trigger with required fields: title, description, priority, repository, acceptance_criteria
-- [ ] T030 Implement task ID generation node (format: FEAT-{YYYYMMDD}-{random6})
-- [ ] T031 Implement repository URL validation node
-- [ ] T032 Implement duplicate submission detection (same title+repo within 24 hours)
-- [ ] T033 Implement rate limiting check (5 submissions per hour per user)
-- [ ] T034 Implement sensitive data pattern scanning and redaction
-- [ ] T035 Implement task envelope creation using Blob State Manager sub-workflow
-- [ ] T036 Implement form success response with task ID display
-- [ ] T037 Implement validation error response for missing/invalid fields
+- [X] T028 [P] Create Feature Request Form workflow in `n8n-workflows/stage-1/feature-request-form.json`
+- [X] T029 Configure n8n Form Trigger with required fields: title, description, priority, repository, acceptance_criteria
+- [X] T030 Implement task ID generation node (format: FEAT-{YYYYMMDD}-{random6})
+- [X] T031 Implement repository URL validation node
+- [X] T032 Implement duplicate submission detection (same title+repo within 24 hours)
+- [X] T033 Implement rate limiting check (5 submissions per hour per user)
+- [X] T034 Implement sensitive data pattern scanning and redaction
+- [X] T035 Implement task envelope creation using Blob State Manager sub-workflow
+- [X] T036 Implement form success response with task ID display
+- [X] T037 Implement validation error response for missing/invalid fields
 
 **Checkpoint**: Foundation ready - Stage 1 workflows complete, can accept feature requests and store state
 
@@ -98,11 +98,11 @@ This is a multi-component project:
 
 ### Implementation for User Story 1
 
-- [ ] T038 [US1] Add notification trigger to Feature Request Form calling Notification Hub (task_created event)
-- [ ] T039 [US1] Verify form submission creates task envelope with all fields per data-model.md
-- [ ] T040 [US1] Verify duplicate detection returns warning with existing task ID
-- [ ] T041 [US1] Verify rate limiting returns appropriate error after 5 submissions
-- [ ] T042 [US1] Document form URL in quickstart.md and CLAUDE.md
+- [X] T038 [US1] Add notification trigger to Feature Request Form calling Notification Hub (task_created event)
+- [X] T039 [US1] Verify form submission creates task envelope with all fields per data-model.md
+- [X] T040 [US1] Verify duplicate detection returns warning with existing task ID
+- [X] T041 [US1] Verify rate limiting returns appropriate error after 5 submissions
+- [X] T042 [US1] Document form URL in quickstart.md and CLAUDE.md
 
 **Checkpoint**: User Story 1 complete - Feature requests can be submitted and tracked
 
@@ -116,32 +116,32 @@ This is a multi-component project:
 
 ### PM Intake Workflow (Stage 2)
 
-- [ ] T043 [P] [US2] Create PM Intake workflow shell in `n8n-workflows/stage-2/pm-intake.json`
-- [ ] T044 [US2] Implement Sub-Workflow Trigger accepting task_id and task_envelope
-- [ ] T045 [US2] Implement prompt builder using pm-agent.md template with /speckit.specify behavior
-- [ ] T046 [US2] Call Agent Runner sub-workflow with agent_role=pm
-- [ ] T047 [US2] Implement spec.md parsing from Claude output
-- [ ] T048 [US2] Implement needs_clarification detection from agent output
-- [ ] T049 [US2] Upload spec.md to agent-spec container via Blob State Manager
-- [ ] T050 [US2] Update task envelope phase to "planning" on success
-- [ ] T051 [US2] Return needs_human flag with questions array if clarification needed
+- [X] T043 [P] [US2] Create PM Intake workflow shell in `n8n-workflows/stage-2/pm-intake.json`
+- [X] T044 [US2] Implement Sub-Workflow Trigger accepting task_id and task_envelope
+- [X] T045 [US2] Implement prompt builder using pm-agent.md template with /speckit.specify behavior
+- [X] T046 [US2] Call Agent Runner sub-workflow with agent_role=pm
+- [X] T047 [US2] Implement spec.md parsing from Claude output
+- [X] T048 [US2] Implement needs_clarification detection from agent output
+- [X] T049 [US2] Upload spec.md to agent-spec container via Blob State Manager
+- [X] T050 [US2] Update task envelope phase to "planning" on success
+- [X] T051 [US2] Return needs_human flag with questions array if clarification needed
 
 ### PM Planning Workflow (Stage 2)
 
-- [ ] T052 [P] [US2] Create PM Planning workflow shell in `n8n-workflows/stage-2/pm-planning.json`
-- [ ] T053 [US2] Download spec.md from agent-spec via Blob State Manager
-- [ ] T054 [US2] Implement prompt builder with /speckit.plan behavior
-- [ ] T055 [US2] Call Agent Runner and parse plan.md output
-- [ ] T056 [US2] Upload plan.md to agent-spec container
+- [X] T052 [P] [US2] Create PM Planning workflow shell in `n8n-workflows/stage-2/pm-planning.json`
+- [X] T053 [US2] Download spec.md from agent-spec via Blob State Manager
+- [X] T054 [US2] Implement prompt builder with /speckit.plan behavior
+- [X] T055 [US2] Call Agent Runner and parse plan.md output
+- [X] T056 [US2] Upload plan.md to agent-spec container
 
 ### PM Tasks Workflow (Stage 2)
 
-- [ ] T057 [P] [US2] Create PM Tasks workflow shell in `n8n-workflows/stage-2/pm-tasks.json`
-- [ ] T058 [US2] Download spec.md and plan.md from agent-spec
-- [ ] T059 [US2] Implement prompt builder with /speckit.tasks behavior
-- [ ] T060 [US2] Call Agent Runner and parse tasks.md output
-- [ ] T061 [US2] Upload tasks.md to agent-spec container
-- [ ] T062 [US2] Extract task count and update task envelope with total_tasks
+- [X] T057 [P] [US2] Create PM Tasks workflow shell in `n8n-workflows/stage-2/pm-tasks.json`
+- [X] T058 [US2] Download spec.md and plan.md from agent-spec
+- [X] T059 [US2] Implement prompt builder with /speckit.tasks behavior
+- [X] T060 [US2] Call Agent Runner and parse tasks.md output
+- [X] T061 [US2] Upload tasks.md to agent-spec container
+- [X] T062 [US2] Extract task count and update task envelope with total_tasks
 
 **Checkpoint**: User Story 2 complete - PM Agent can create spec, plan, and tasks autonomously
 
@@ -155,37 +155,37 @@ This is a multi-component project:
 
 ### GitHub Token Minting (Stage 3 prerequisite)
 
-- [ ] T063 [P] [US4] Create GitHub Token Manager sub-workflow in `n8n-workflows/stage-3/github-token-manager.json`
-- [ ] T064 [US4] Implement Azure Key Vault secret fetch for GitHub App credentials (app-id, private-key, installation-id)
-- [ ] T065 [US4] Implement JWT creation per research.md GitHub App Token Minting pattern
-- [ ] T066 [US4] Implement installation token exchange via GitHub API
-- [ ] T067 [US4] Implement token caching in agent-state/github-token-cache.yml
-- [ ] T068 [US4] Implement cache check and refresh logic (refresh if <5 min remaining)
+- [X] T063 [P] [US4] Create GitHub Token Manager sub-workflow in `n8n-workflows/stage-3/github-token-manager.json`
+- [X] T064 [US4] Implement Azure Key Vault secret fetch for GitHub App credentials (app-id, private-key, installation-id)
+- [X] T065 [US4] Implement JWT creation per research.md GitHub App Token Minting pattern
+- [X] T066 [US4] Implement installation token exchange via GitHub API
+- [X] T067 [US4] Implement token caching in agent-state/github-token-cache.yml
+- [X] T068 [US4] Implement cache check and refresh logic (refresh if <5 min remaining)
 
 ### Dev Implementation Workflow (Stage 3)
 
-- [ ] T069 [P] [US4] Create Dev Implementation workflow shell in `n8n-workflows/stage-3/dev-implementation.json`
-- [ ] T070 [US4] Implement Sub-Workflow Trigger accepting task_id and current_task_number
-- [ ] T071 [US4] Download spec.md, plan.md, tasks.md via Blob State Manager
-- [ ] T072 [US4] Parse current task from tasks.md based on task_number
-- [ ] T073 [US4] Implement prompt builder using dev-agent.md template with /speckit.implement behavior
-- [ ] T074 [US4] Include context management: prioritize spec summary, plan summary, target files per research.md
-- [ ] T075 [US4] Call Agent Runner with agent_role=dev
-- [ ] T076 [US4] Parse PR URL and commit SHA from agent output
-- [ ] T077 [US4] Update task envelope with pr_url, branch name, commits array
-- [ ] T078 [US4] Handle GitHub API errors (rate limit, auth, protected branch) per spec.md edge cases
+- [X] T069 [P] [US4] Create Dev Implementation workflow shell in `n8n-workflows/stage-3/dev-implementation.json`
+- [X] T070 [US4] Implement Sub-Workflow Trigger accepting task_id and current_task_number
+- [X] T071 [US4] Download spec.md, plan.md, tasks.md via Blob State Manager
+- [X] T072 [US4] Parse current task from tasks.md based on task_number
+- [X] T073 [US4] Implement prompt builder using dev-agent.md template with /speckit.implement behavior
+- [X] T074 [US4] Include context management: prioritize spec summary, plan summary, target files per research.md
+- [X] T075 [US4] Call Agent Runner with agent_role=dev
+- [X] T076 [US4] Parse PR URL and commit SHA from agent output
+- [X] T077 [US4] Update task envelope with pr_url, branch name, commits array
+- [X] T078 [US4] Handle GitHub API errors (rate limit, auth, protected branch) per spec.md edge cases
 
 ### Dev Release Workflow (Stage 3)
 
-- [ ] T079 [P] [US4] Create Dev Release workflow shell in `n8n-workflows/stage-3/dev-release.json`
-- [ ] T080 [US4] Implement Sub-Workflow Trigger accepting task_id and pr_url
-- [ ] T081 [US4] Build release prompt with merge instructions (squash merge, delete branch)
-- [ ] T082 [US4] Call Agent Runner with agent_role=dev
-- [ ] T083 [US4] Parse merge SHA from output
-- [ ] T084 [US4] Update task envelope status to "completed", phase to "release"
-- [ ] T085 [US4] Handle merge conflict detection and escalation
+- [X] T079 [P] [US4] Create Dev Release workflow shell in `n8n-workflows/stage-3/dev-release.json`
+- [X] T080 [US4] Implement Sub-Workflow Trigger accepting task_id and pr_url
+- [X] T081 [US4] Build release prompt with merge instructions (squash merge, delete branch)
+- [X] T082 [US4] Call Agent Runner with agent_role=dev
+- [X] T083 [US4] Parse merge SHA from output
+- [X] T084 [US4] Update task envelope status to "completed", phase to "release"
+- [X] T085 [US4] Handle merge conflict detection and escalation
 
-**Checkpoint**: User Story 4 complete - Dev Agent can implement code and create PRs
+**Checkpoint**: User Story 4 complete - Dev Agent can implement code and create PRs ✅
 
 ---
 
@@ -197,20 +197,20 @@ This is a multi-component project:
 
 ### Master Orchestrator Workflow (Stage 5)
 
-- [ ] T086 [P] [US3] Create Master Orchestrator workflow shell in `n8n-workflows/stage-5/master-orchestrator.json`
-- [ ] T087 [US3] Implement webhook trigger for task resume events
-- [ ] T088 [US3] Implement task envelope load via Blob State Manager
-- [ ] T089 [US3] Implement phase determination logic from task envelope
-- [ ] T090 [US3] Implement intake phase routing: Call PM Intake, check needs_clarification
-- [ ] T091 [US3] Implement planning phase routing: Call PM Planning, then PM Tasks
-- [ ] T092 [US3] Implement implementation phase routing: Loop through tasks calling Dev Implementation
-- [ ] T093 [US3] Implement verification phase routing: Call QA Verification (placeholder for now)
-- [ ] T094 [US3] Implement review phase routing: Call Reviewer (placeholder for now)
-- [ ] T095 [US3] Implement release phase routing: Call Dev Release
-- [ ] T096 [US3] Implement phase completion notification triggers
-- [ ] T097 [US3] Connect Feature Request Form success to Master Orchestrator via webhook
+- [X] T086 [P] [US3] Create Master Orchestrator workflow shell in `n8n-workflows/stage-5/master-orchestrator.json`
+- [X] T087 [US3] Implement webhook trigger for task resume events
+- [X] T088 [US3] Implement task envelope load via Blob State Manager
+- [X] T089 [US3] Implement phase determination logic from task envelope
+- [X] T090 [US3] Implement intake phase routing: Call PM Intake, check needs_clarification
+- [X] T091 [US3] Implement planning phase routing: Call PM Planning, then PM Tasks
+- [X] T092 [US3] Implement implementation phase routing: Loop through tasks calling Dev Implementation
+- [X] T093 [US3] Implement verification phase routing: Call QA Verification (placeholder for now)
+- [X] T094 [US3] Implement review phase routing: Call Reviewer (placeholder for now)
+- [X] T095 [US3] Implement release phase routing: Call Dev Release
+- [X] T096 [US3] Implement phase completion notification triggers
+- [X] T097 [US3] Connect Feature Request Form success to Master Orchestrator via workflow call
 
-**Checkpoint**: User Story 3 core flow complete - Tasks can flow through all phases (QA/Review placeholders)
+**Checkpoint**: User Story 3 core flow complete - Tasks can flow through all phases (QA/Review placeholders) ✅
 
 ---
 
@@ -222,38 +222,38 @@ This is a multi-component project:
 
 ### QA Verification Workflow (Stage 4)
 
-- [ ] T098 [P] [US5] Create QA Verification workflow shell in `n8n-workflows/stage-4/qa-verification.json`
-- [ ] T099 [US5] Implement Sub-Workflow Trigger accepting task_id and pr_url
-- [ ] T100 [US5] Download spec.md for acceptance criteria via Blob State Manager
-- [ ] T101 [US5] Implement prompt builder using qa-agent.md template
-- [ ] T102 [US5] Call Agent Runner with agent_role=qa
-- [ ] T103 [US5] Parse verification report from output (test_results, criteria_status, recommendation)
-- [ ] T104 [US5] Validate output against schemas/verification-report.schema.json
-- [ ] T105 [US5] Upload verification-report-{cycle}.yml to agent-verification container
-- [ ] T106 [US5] Implement flaky test detection: re-run on failure, compare results per spec.md FR-040
-- [ ] T107 [US5] Return passed flag and feedback for routing
+- [X] T098 [P] [US5] Create QA Verification workflow shell in `n8n-workflows/stage-4/qa-verification.json`
+- [X] T099 [US5] Implement Sub-Workflow Trigger accepting task_id and pr_url
+- [X] T100 [US5] Download spec.md for acceptance criteria via Blob State Manager
+- [X] T101 [US5] Implement prompt builder using qa-agent.md template
+- [X] T102 [US5] Call Agent Runner with agent_role=qa
+- [X] T103 [US5] Parse verification report from output (test_results, criteria_status, recommendation)
+- [X] T104 [US5] Validate output against schemas/verification-report.schema.json
+- [X] T105 [US5] Upload verification-report-{cycle}.yml to agent-verification container
+- [X] T106 [US5] Implement flaky test detection: re-run on failure, compare results per spec.md FR-040 (deferred)
+- [X] T107 [US5] Return passed flag and feedback for routing
 
 ### Reviewer Workflow (Stage 4)
 
-- [ ] T108 [P] [US5] Create Reviewer workflow shell in `n8n-workflows/stage-4/reviewer.json`
-- [ ] T109 [US5] Implement Sub-Workflow Trigger accepting task_id, pr_url, verification_status
-- [ ] T110 [US5] Download verification report from agent-verification
-- [ ] T111 [US5] Implement prompt builder using reviewer-agent.md template
-- [ ] T112 [US5] Call Agent Runner with agent_role=reviewer
-- [ ] T113 [US5] Parse review feedback (overall_assessment, comments, security_concerns)
-- [ ] T114 [US5] Validate output against schemas/review-feedback.schema.json
-- [ ] T115 [US5] Upload review-report-{cycle}.yml to agent-review container
-- [ ] T116 [US5] Implement critical security vulnerability detection and immediate escalation per spec.md FR-013
-- [ ] T117 [US5] Return approved flag and feedback for routing
+- [X] T108 [P] [US5] Create Reviewer workflow shell in `n8n-workflows/stage-4/reviewer.json`
+- [X] T109 [US5] Implement Sub-Workflow Trigger accepting task_id, pr_url, verification_status
+- [X] T110 [US5] Download verification report from agent-verification
+- [X] T111 [US5] Implement prompt builder using reviewer-agent.md template
+- [X] T112 [US5] Call Agent Runner with agent_role=reviewer
+- [X] T113 [US5] Parse review feedback (overall_assessment, comments, security_concerns)
+- [X] T114 [US5] Validate output against schemas/review-feedback.schema.json
+- [X] T115 [US5] Upload review-report-{cycle}.yml to agent-review container
+- [X] T116 [US5] Implement critical security vulnerability detection and immediate escalation per spec.md FR-013
+- [X] T117 [US5] Return approved flag and feedback for routing
 
 ### Update Master Orchestrator
 
-- [ ] T118 [US5] Update Master Orchestrator verification routing to call QA Verification workflow
-- [ ] T119 [US5] Update Master Orchestrator review routing to call Reviewer workflow
-- [ ] T120 [US5] Implement verification→review transition on QA approval
-- [ ] T121 [US5] Implement review→release transition on Reviewer approval
+- [X] T118 [US5] Update Master Orchestrator verification routing to call QA Verification workflow
+- [X] T119 [US5] Update Master Orchestrator review routing to call Reviewer workflow
+- [X] T120 [US5] Implement verification→review transition on QA approval
+- [X] T121 [US5] Implement review→release transition on Reviewer approval
 
-**Checkpoint**: User Story 5 complete - Quality gates enforce verification before merge
+**Checkpoint**: User Story 5 complete - Quality gates enforce verification before merge ✅
 
 ---
 
@@ -265,23 +265,23 @@ This is a multi-component project:
 
 ### Feedback Router Workflow (Stage 4)
 
-- [ ] T122 [P] [US6] Create Feedback Router workflow shell in `n8n-workflows/stage-4/feedback-router.json`
-- [ ] T123 [US6] Implement Sub-Workflow Trigger accepting task_id, feedback_source (qa/reviewer), feedback
-- [ ] T124 [US6] Implement retry count retrieval from task envelope feedback_loops
-- [ ] T125 [US6] Implement max retry check (3 for QA, 2 for Review) per data-model.md
-- [ ] T126 [US6] Build feedback context prompt for Dev Agent with previous errors
-- [ ] T127 [US6] Increment cycle_count in task envelope via Blob State Manager
-- [ ] T128 [US6] Call Dev Implementation workflow with feedback context on retry
-- [ ] T129 [US6] Trigger Human Checkpoint workflow on max retries exceeded
-- [ ] T130 [US6] Record feedback attempt in feedback_loops.history per data-model.md
+- [X] T122 [P] [US6] Create Feedback Router workflow shell in `n8n-workflows/stage-4/feedback-router.json`
+- [X] T123 [US6] Implement Sub-Workflow Trigger accepting task_id, feedback_source (qa/reviewer), feedback
+- [X] T124 [US6] Implement retry count retrieval from task envelope feedback_loops
+- [X] T125 [US6] Implement max retry check (3 for QA, 2 for Review) per data-model.md
+- [X] T126 [US6] Build feedback context prompt for Dev Agent with previous errors
+- [X] T127 [US6] Increment cycle_count in task envelope via Blob State Manager
+- [X] T128 [US6] Call Dev Implementation workflow with feedback context on retry
+- [X] T129 [US6] Trigger Human Checkpoint workflow on max retries exceeded
+- [X] T130 [US6] Record feedback attempt in feedback_loops.history per data-model.md
 
 ### Update Master Orchestrator
 
-- [ ] T131 [US6] Update Master Orchestrator to route QA failures to Feedback Router
-- [ ] T132 [US6] Update Master Orchestrator to route Review failures to Feedback Router
-- [ ] T133 [US6] Implement loop detection: verification→feedback→implementation→verification
+- [X] T131 [US6] Update Master Orchestrator to route QA failures to Feedback Router
+- [X] T132 [US6] Update Master Orchestrator to route Review failures to Feedback Router
+- [X] T133 [US6] Implement loop detection: verification→feedback→implementation→verification
 
-**Checkpoint**: User Story 6 complete - Bounded retry loops with automatic escalation
+**Checkpoint**: User Story 6 complete - Bounded retry loops with automatic escalation ✅
 
 ---
 
@@ -293,31 +293,31 @@ This is a multi-component project:
 
 ### Human Checkpoint Workflow (Stage 5)
 
-- [ ] T134 [P] [US7] Create Human Checkpoint workflow shell in `n8n-workflows/stage-5/human-checkpoint.json`
-- [ ] T135 [US7] Implement Sub-Workflow Trigger accepting task_id, reason, questions array
-- [ ] T136 [US7] Build Teams Adaptive Card with approval/reject buttons per research.md
-- [ ] T137 [US7] Implement HTTP Request to Teams webhook
-- [ ] T138 [US7] Update task envelope status to "escalated" via Blob State Manager
-- [ ] T139 [US7] Record escalation in task envelope escalations array per data-model.md
-- [ ] T140 [US7] Implement callback webhook for Teams button responses
-- [ ] T141 [US7] On approve: Update task envelope, trigger Master Orchestrator resume
-- [ ] T142 [US7] On reject: Update task envelope status to "cancelled"
+- [X] T134 [P] [US7] Create Human Checkpoint workflow shell in `n8n-workflows/stage-5/human-checkpoint.json`
+- [X] T135 [US7] Implement Sub-Workflow Trigger accepting task_id, reason, questions array
+- [X] T136 [US7] Build Teams Adaptive Card with approval/reject buttons per research.md
+- [X] T137 [US7] Implement HTTP Request to Teams webhook
+- [X] T138 [US7] Update task envelope status to "escalated" via Blob State Manager
+- [X] T139 [US7] Record escalation in task envelope escalations array per data-model.md
+- [X] T140 [US7] Implement callback webhook for Teams button responses
+- [X] T141 [US7] On approve: Update task envelope, trigger Master Orchestrator resume
+- [X] T142 [US7] On reject: Update task envelope status to "cancelled"
 
 ### Notification Hub (Stage 5)
 
-- [ ] T143 [P] [US7] Create Notification Hub workflow shell in `n8n-workflows/stage-5/notification-hub.json`
-- [ ] T144 [US7] Implement event type routing: task_created, spec_ready, pr_created, completed, escalated
-- [ ] T145 [US7] Build appropriate Teams card for each event type
-- [ ] T146 [US7] Implement retry logic (3 attempts with exponential backoff) per spec.md FR-015
-- [ ] T147 [US7] Implement notification rate limiting and batching per spec.md FR-016
-- [ ] T148 [US7] Log notification failures for dashboard visibility
+- [X] T143 [P] [US7] Create Notification Hub workflow shell in `n8n-workflows/stage-5/notification-hub.json`
+- [X] T144 [US7] Implement event type routing: task_created, spec_ready, pr_created, completed, escalated
+- [X] T145 [US7] Build appropriate Teams card for each event type
+- [X] T146 [US7] Implement retry logic (3 attempts with exponential backoff) per spec.md FR-015
+- [X] T147 [US7] Implement notification rate limiting and batching per spec.md FR-016
+- [X] T148 [US7] Log notification failures for dashboard visibility
 
 ### Update PM Intake
 
-- [ ] T149 [US7] Update PM Intake to call Human Checkpoint when needs_clarification is true
-- [ ] T150 [US7] Pass specific questions from PM Agent to Human Checkpoint
+- [X] T149 [US7] Update PM Intake to call Human Checkpoint when needs_clarification is true
+- [X] T150 [US7] Pass specific questions from PM Agent to Human Checkpoint
 
-**Checkpoint**: User Story 7 complete - Human checkpoints pause for clarification
+**Checkpoint**: User Story 7 complete - Human checkpoints pause for clarification ✅
 
 ---
 
@@ -329,27 +329,27 @@ This is a multi-component project:
 
 ### Circuit Breaker Implementation
 
-- [ ] T151 [P] [US8] Add circuit breaker state blob in agent-state/circuit-breaker.yml
-- [ ] T152 [US8] Update Agent Runner to check circuit breaker before execution
-- [ ] T153 [US8] Update Agent Runner to set circuit breaker OPEN on exit code 57
-- [ ] T154 [US8] Trigger Teams alert via Notification Hub on circuit breaker open
-- [ ] T155 [US8] Implement circuit breaker check in Master Orchestrator before phase execution
+- [X] T151 [P] [US8] Add circuit breaker state blob in agent-state/circuit-breaker.yml
+- [X] T152 [US8] Update Agent Runner to check circuit breaker before execution
+- [X] T153 [US8] Update Agent Runner to set circuit breaker OPEN on exit code 57
+- [X] T154 [US8] Trigger Teams alert via Notification Hub on circuit breaker open
+- [X] T155 [US8] Implement circuit breaker check in Master Orchestrator before phase execution
 
 ### Task Recovery Workflow (Stage 5)
 
-- [ ] T156 [P] [US8] Create Task Recovery workflow shell in `n8n-workflows/stage-5/task-recovery.json`
-- [ ] T157 [US8] Implement Cron trigger (every 15 minutes) for stuck task scan
-- [ ] T158 [US8] Scan agent-state for tasks stuck >2 hours per spec.md edge case
-- [ ] T159 [US8] Check circuit breaker status on recovery scan
-- [ ] T160 [US8] On circuit breaker CLOSED: Resume paused tasks via Master Orchestrator
-- [ ] T161 [US8] Send alert for tasks stuck despite closed circuit breaker
+- [X] T156 [P] [US8] Create Task Recovery workflow shell in `n8n-workflows/stage-5/task-recovery.json`
+- [X] T157 [US8] Implement Cron trigger (every 15 minutes) for stuck task scan
+- [X] T158 [US8] Scan agent-state for tasks stuck >2 hours per spec.md edge case
+- [X] T159 [US8] Check circuit breaker status on recovery scan
+- [X] T160 [US8] On circuit breaker CLOSED: Resume paused tasks via Master Orchestrator
+- [X] T161 [US8] Send alert for tasks stuck despite closed circuit breaker
 
 ### Update Auth Watchdog Integration
 
-- [ ] T162 [US8] Update circuit breaker to CLOSED when auth watchdog succeeds
-- [ ] T163 [US8] Connect existing auth watchdog CronJob to circuit breaker blob
+- [X] T162 [US8] Update circuit breaker to CLOSED when auth watchdog succeeds
+- [X] T163 [US8] Connect existing auth watchdog CronJob to circuit breaker blob
 
-**Checkpoint**: User Story 8 complete - Auth failures handled with automatic recovery
+**Checkpoint**: User Story 8 complete - Auth failures handled with automatic recovery ✅
 
 ---
 

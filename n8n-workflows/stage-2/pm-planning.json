@@ -1,0 +1,188 @@
+{
+  "name": "PM Planning",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T052: Input: task_id"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T053: Prepare request to download spec.md from agent-spec\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-spec',\n    blob_path: `${data.task_id}/spec.md`,\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_spec_download",
+      "name": "Prepare Spec Download",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T053: Prepare download request for spec.md"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_download_spec",
+      "name": "Download spec.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T053: Download spec.md via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T054: Build planning prompt with /speckit.plan behavior\nconst downloadResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nif (!downloadResult.success) {\n  throw new Error(`Failed to download spec.md: ${downloadResult.error || 'Unknown error'}`);\n}\n\nconst specContent = downloadResult.content;\n\n// Build the system prompt with PM Agent planning behavior\nconst systemPrompt = `You are a Senior Technical Project Manager. Your current task is to create an implementation plan from an approved specification.\n\n## Behavior: /speckit.plan\n\nCreate an implementation plan document with:\n1. **Implementation Approach**: High-level strategy and architecture decisions\n2. **Component Design**: Key modules, their responsibilities, and interactions\n3. **Data Model**: New entities, relationships, schema changes if any\n4. **Technical Decisions**: Frameworks, libraries, patterns to use with rationale\n5. **Research Notes**: Any technical investigation findings\n6. **File Structure**: Proposed new files or modifications\n\n## Output Format\n\nYour response MUST be a complete Markdown document following the SpecKit plan.md template format. Start with a title and include all sections.\n\n## Guidelines\n\n- Reference specific files and modules from the repository\n- Keep the plan actionable - a developer should understand what to build\n- Don't include actual code - save that for implementation\n- Focus on the \"what\" and \"why\", not the \"how\" of coding\n- Consider testability in your design decisions`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nCreate an implementation plan for the following specification.\n\n## Specification (spec.md)\n\n${specContent}\n\n---\n\nPlease create a complete implementation plan document. Structure it clearly with headers and provide enough detail for a developer to understand the approach.`;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    spec_content: specContent,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'pm'\n  }\n}];"
+      },
+      "id": "code_build_planning_prompt",
+      "name": "Build Planning Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T054: PM Agent planning prompt with /speckit.plan behavior"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.AGENT_RUNNER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_agent_runner",
+      "name": "Call Agent Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1120, 300],
+      "notes": "T055: Call Agent Runner with agent_role=pm"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T055: Parse plan.md output from Claude\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Planning Prompt').first().json;\n\nif (!agentResponse.success) {\n  throw new Error(`Agent Runner failed: ${agentResponse.error || 'Unknown error'}`);\n}\n\nconst output = agentResponse.output || '';\n\n// The output should be a complete plan.md document\n// Clean up any code fence wrappers if present\nlet planContent = output;\nif (planContent.startsWith('```markdown')) {\n  planContent = planContent.replace(/^```markdown\\n?/, '').replace(/\\n?```$/, '');\n} else if (planContent.startsWith('```')) {\n  planContent = planContent.replace(/^```\\n?/, '').replace(/\\n?```$/, '');\n}\n\nreturn [{\n  json: {\n    task_id: previousData.task_id,\n    plan_content: planContent.trim(),\n    raw_output: output\n  }\n}];"
+      },
+      "id": "code_parse_plan",
+      "name": "Parse Plan Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "T055: Parse plan.md from Claude output"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T056: Prepare plan.md upload request for Blob State Manager\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-spec',\n    blob_path: `${data.task_id}/plan.md`,\n    content: data.plan_content,\n    content_type: 'text/markdown',\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_upload",
+      "name": "Prepare Plan Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "notes": "T056: Build upload request for plan.md"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_upload_plan",
+      "name": "Upload plan.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1780, 300],
+      "notes": "T056: Upload plan.md to agent-spec container"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return success result\nconst data = $('Parse Plan Output').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'planning',\n    status: 'completed',\n    plan_path: `agent-spec/${data.task_id}/plan.md`\n  }\n}];"
+      },
+      "id": "code_return_success",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "notes": "Return success with plan path"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'planning',\n    error: error.message || 'Unknown error in PM Planning workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Spec Download", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Spec Download": {
+      "main": [
+        [{ "node": "Download spec.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download spec.md": {
+      "main": [
+        [{ "node": "Build Planning Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Planning Prompt": {
+      "main": [
+        [{ "node": "Call Agent Runner", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Agent Runner": {
+      "main": [
+        [{ "node": "Parse Plan Output", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Plan Output": {
+      "main": [
+        [{ "node": "Prepare Plan Upload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Plan Upload": {
+      "main": [
+        [{ "node": "Upload plan.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload plan.md": {
+      "main": [
+        [{ "node": "Return Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-2" },
+    { "name": "pm-agent" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "pm-planning",
+    "instanceId": "autonomous-dev-team"
+  }
+}

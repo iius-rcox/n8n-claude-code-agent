@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ii-us.github.io/schemas/task-envelope/v1.1.0",
+  "title": "TaskEnvelope",
+  "description": "Central state object tracking a feature through its lifecycle",
+  "type": "object",
+  "required": [
+    "task_id",
+    "created_at",
+    "created_by",
+    "repository",
+    "request",
+    "status",
+    "phase",
+    "current_agent",
+    "phases",
+    "feedback_loops",
+    "updated_at",
+    "version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.1.0",
+      "description": "Schema version for migration support"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^FEAT-\\d{8}-[a-z0-9]{6}$",
+      "description": "Unique task identifier in format FEAT-YYYYMMDD-random6"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when task was created"
+    },
+    "created_by": {
+      "type": "string",
+      "enum": ["form", "api", "manual"],
+      "description": "How the task was created"
+    },
+    "repository": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://github\\.com/",
+      "description": "Target GitHub repository URL"
+    },
+    "request": {
+      "type": "object",
+      "required": ["title", "description", "priority"],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 200,
+          "description": "Feature title"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 10000,
+          "description": "Detailed feature description"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Task priority for queue ordering"
+        },
+        "acceptance_criteria": {
+          "type": "string",
+          "maxLength": 5000,
+          "description": "User-defined success criteria"
+        },
+        "clarifications": {
+          "type": "array",
+          "description": "Clarification responses from user (added in v1.1.0)",
+          "default": [],
+          "items": {
+            "type": "object",
+            "required": ["question", "answer", "answered_at"],
+            "properties": {
+              "question": {
+                "type": "string",
+                "description": "Original question asked by PM Agent"
+              },
+              "answer": {
+                "type": "string",
+                "description": "User's response"
+              },
+              "answered_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When clarification was provided"
+              }
+            }
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "in_progress", "blocked", "escalated", "paused", "completed", "failed", "cancelled"],
+      "description": "Current task status"
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["intake", "planning", "implementation", "verification", "review", "release"],
+      "description": "Current pipeline phase"
+    },
+    "current_agent": {
+      "type": "string",
+      "enum": ["pm", "dev", "qa", "reviewer", "none"],
+      "description": "Agent currently working on task"
+    },
+    "phases": {
+      "type": "object",
+      "properties": {
+        "intake": { "$ref": "#/$defs/PhaseState" },
+        "planning": { "$ref": "#/$defs/PhaseState" },
+        "implementation": { "$ref": "#/$defs/ImplementationPhaseState" },
+        "verification": { "$ref": "#/$defs/PhaseState" },
+        "review": { "$ref": "#/$defs/PhaseState" },
+        "release": { "$ref": "#/$defs/PhaseState" }
+      }
+    },
+    "feedback_loops": {
+      "type": "object",
+      "required": ["verification", "review"],
+      "properties": {
+        "verification": { "$ref": "#/$defs/FeedbackLoop" },
+        "review": { "$ref": "#/$defs/FeedbackLoop" }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ErrorRecord" },
+      "default": []
+    },
+    "escalations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/EscalationRecord" },
+      "default": []
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optimistic locking version number"
+    },
+    "lease_holder": {
+      "type": ["string", "null"],
+      "description": "Current lease holder identifier (null if not leased)"
+    },
+    "notification_ids": {
+      "type": "array",
+      "description": "Sent notification IDs for deduplication (added in v1.1.0)",
+      "default": [],
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]+_[a-f0-9]{8}$",
+        "description": "Notification ID in format type_random8"
+      }
+    }
+  },
+  "$defs": {
+    "PhaseState": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "completed", "failed", "skipped"]
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "agent_invocations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_path": {
+          "type": "string"
+        },
+        "output_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "ImplementationPhaseState": {
+      "allOf": [
+        { "$ref": "#/$defs/PhaseState" },
+        {
+          "type": "object",
+          "properties": {
+            "current_task": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "total_tasks": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "pr_url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "commits": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{7,40}$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FeedbackLoop": {
+      "type": "object",
+      "required": ["cycle_count", "max_cycles"],
+      "properties": {
+        "cycle_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_cycles": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "cycle": { "type": "integer" },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "issues_count": { "type": "integer" },
+              "report_path": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "ErrorRecord": {
+      "type": "object",
+      "required": ["timestamp", "phase", "exit_code", "message"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "phase": { "type": "string" },
+        "exit_code": { "type": "integer" },
+        "message": { "type": "string" },
+        "resolution": { "type": "string" }
+      }
+    },
+    "EscalationRecord": {
+      "type": "object",
+      "required": ["timestamp", "phase", "reason"],
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "phase": { "type": "string" },
+        "reason": {
+          "type": "string",
+          "enum": ["needs_clarification", "max_retries", "security_concern", "blocked", "auth_failure"]
+        },
+        "questions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "resolved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resolution": { "type": "string" }
+      }
+    }
+  }
+}
