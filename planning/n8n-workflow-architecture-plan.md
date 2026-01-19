@@ -564,7 +564,7 @@ iiusagentstore.blob.core.windows.net/
 
 **Approval Web Form (instead of Action.Http):**
 ```
-URL: https://n8n.coxserver.com/webhook-ui/task-approve?ticket={ticket_id}&token={token}
+URL: https://n8n.ii-us.com/webhook-ui/task-approve?ticket={ticket_id}&token={token}
 
 Simple form with:
 - Task summary (read-only)
@@ -1097,8 +1097,8 @@ Output:
 ## References
 
 - **Claude Agent HTTP API:** `infra/docker/server.js`
-- **Existing POC Workflow:** ID `Anfqbp8bXJpPFFK7` on n8n.coxserver.com
+- **Existing POC Workflow:** ID `Anfqbp8bXJpPFFK7` on n8n.ii-us.com
 - **Azure Storage:** `iiusagentstore` (6 containers + system/)
-- **n8n Instance:** https://n8n.coxserver.com
+- **n8n Instance:** https://n8n.ii-us.com
 - **Teams Webhook:** (configured in Notification Hub)
 - **Application Insights:** (for structured logging)

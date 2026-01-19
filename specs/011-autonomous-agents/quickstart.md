@@ -22,7 +22,7 @@
 |----------|-------------|----------------|
 | Azure Subscription (II-US) | Contributor | IT ticket |
 | AKS Cluster (dev-aks) | kubectl access | Already configured via `az aks command invoke` |
-| n8n Instance | Admin | https://n8n.coxserver.com |
+| n8n Instance | Admin | https://n8n.ii-us.com |
 | GitHub (ii-us org) | Write | Org admin |
 | Teams Channel | Post messages | Channel owner |
 
@@ -56,7 +56,7 @@ AZURE_RESOURCE_GROUP=rg_prod
 AZURE_STORAGE_ACCOUNT=iiusagentstore
 
 # n8n
-N8N_URL=https://n8n.coxserver.com
+N8N_URL=https://n8n.ii-us.com
 N8N_API_KEY=<your-n8n-api-key>
 
 # GitHub App (from Key Vault)
@@ -207,7 +207,7 @@ curl -X POST "$N8N_URL/api/v1/workflows" \
 
 ### 4.2 Test Blob State Manager
 
-1. Open n8n: https://n8n.coxserver.com
+1. Open n8n: https://n8n.ii-us.com
 2. Navigate to "Blob State Manager" workflow
 3. Click "Execute Workflow"
 4. Provide test input:
@@ -324,8 +324,8 @@ In n8n UI, create these credentials:
 
 ### 5.4 Verify Production Deployment
 
-1. Submit test feature via form: `https://n8n.coxserver.com/form/feature-request`
-2. Monitor task progress in dashboard: `https://ops-dashboard.coxserver.com`
+1. Submit test feature via form: `https://n8n.ii-us.com/form/feature-request`
+2. Monitor task progress in dashboard: `https://ops-dashboard.ii-us.com`
 3. Verify Teams notifications received
 4. Check blob storage for artifacts
 
@@ -416,7 +416,7 @@ az aks command invoke \
   --command "kubectl exec -n claude-agent deploy/claude-code-agent -- curl -s http://localhost:3000/health"
 
 # Dashboard health
-curl -s https://ops-dashboard.coxserver.com/api/health | jq
+curl -s https://ops-dashboard.ii-us.com/api/health | jq
 ```
 
 ---

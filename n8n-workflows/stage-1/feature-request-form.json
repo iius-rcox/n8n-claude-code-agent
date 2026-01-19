@@ -274,7 +274,7 @@
     {
       "parameters": {
         "respondWith": "text",
-        "responseBody": "={{ \"\\n✅ Feature Request Submitted Successfully!\\n\\n\" + \"Task ID: \" + $json.task_id + \"\\n\\n\" + \"Your feature request has been received and will be processed by the autonomous dev team.\\n\" + \"You will receive Teams notifications as the task progresses through:\\n\" + \"  1. Intake (specification creation)\\n\" + \"  2. Planning (implementation plan)\\n\" + \"  3. Implementation (code changes)\\n\" + \"  4. Verification (testing)\\n\" + \"  5. Review (code review)\\n\" + \"  6. Release (PR merge)\\n\\n\" + \"Track progress at: https://ops-dashboard.coxserver.com/tasks/\" + $json.task_id }}",
+        "responseBody": "={{ \"\\n✅ Feature Request Submitted Successfully!\\n\\n\" + \"Task ID: \" + $json.task_id + \"\\n\\n\" + \"Your feature request has been received and will be processed by the autonomous dev team.\\n\" + \"You will receive Teams notifications as the task progresses through:\\n\" + \"  1. Intake (specification creation)\\n\" + \"  2. Planning (implementation plan)\\n\" + \"  3. Implementation (code changes)\\n\" + \"  4. Verification (testing)\\n\" + \"  5. Review (code review)\\n\" + \"  6. Release (PR merge)\\n\\n\" + \"Track progress at: https://ops-dashboard.ii-us.com/tasks/\" + $json.task_id }}",
         "options": {
           "responseCode": 200,
           "responseHeaders": {

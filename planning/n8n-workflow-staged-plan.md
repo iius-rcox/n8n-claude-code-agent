@@ -89,7 +89,7 @@ Stage 4: Resilience     → Task Recovery, Circuit Breaker, E2E Testing
 **Test 1.1: Blob State Manager - Create Operation**
 ```bash
 # Trigger via n8n webhook
-curl -X POST https://n8n.coxserver.com/webhook/test-blob-create \
+curl -X POST https://n8n.ii-us.com/webhook/test-blob-create \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "create",
@@ -102,7 +102,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-blob-create \
 
 **Test 1.2: Blob State Manager - Read Operation**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-blob-read \
+curl -X POST https://n8n.ii-us.com/webhook/test-blob-read \
   -H "Content-Type: application/json" \
   -d '{
     "operation": "read",
@@ -120,7 +120,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-blob-read \
 
 **Test 1.4: Agent Runner - Success Path (Mock)**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-001",
@@ -134,7 +134,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
 
 **Test 1.5: Agent Runner - Auth Failure (Mock)**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -H "Content-Type: application/json" \
   -d '{
     "mock": true,
@@ -146,7 +146,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
 
 **Test 1.6: Agent Runner - Real API Call**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "Respond with exactly: STAGE1_TEST_PASS",
@@ -168,7 +168,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
 
 **Test 1.8: Verify n8n Workflow Execution**
 ```
-1. Navigate to: https://n8n.coxserver.com
+1. Navigate to: https://n8n.ii-us.com
 2. Go to: Executions
 3. Filter by: "Blob State Manager" workflow
 4. Verify: Recent executions show success status
@@ -277,7 +277,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
 
 **Test 2.1: Phase Executor - Intake Phase (Mock)**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-phase-executor \
+curl -X POST https://n8n.ii-us.com/webhook/test-phase-executor \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-002",
@@ -300,7 +300,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-phase-executor \
 
 **Test 2.2: Phase Executor - Real Intake Phase**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-phase-executor \
+curl -X POST https://n8n.ii-us.com/webhook/test-phase-executor \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-003",
@@ -323,7 +323,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-phase-executor \
 
 **Test 2.3: Notification Hub - Phase Complete**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/test-notification \
+curl -X POST https://n8n.ii-us.com/webhook/test-notification \
   -H "Content-Type: application/json" \
   -d '{
     "type": "phase_complete",
@@ -340,7 +340,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-notification \
 ```bash
 # Send 3 auth_failure notifications in quick succession
 for i in 1 2 3; do
-  curl -X POST https://n8n.coxserver.com/webhook/test-notification \
+  curl -X POST https://n8n.ii-us.com/webhook/test-notification \
     -H "Content-Type: application/json" \
     -d '{"type": "auth_failure", "ticket_id": "TEST-00'$i'"}'
   sleep 1
@@ -371,7 +371,7 @@ done
 
 **Test 2.7: Verify Workflow Execution Chain**
 ```
-1. Navigate to: https://n8n.coxserver.com
+1. Navigate to: https://n8n.ii-us.com
 2. Go to: Executions
 3. Find: Generic Phase Executor execution for TEST-003
 4. Verify: Shows calls to Blob State Manager and Agent Runner
@@ -501,7 +501,7 @@ done
 **Test 3.1: Human Checkpoint - Approval Flow**
 ```bash
 # Start checkpoint
-curl -X POST https://n8n.coxserver.com/webhook/test-checkpoint \
+curl -X POST https://n8n.ii-us.com/webhook/test-checkpoint \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-004",
@@ -512,7 +512,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-checkpoint \
 # Returns: { "token": "abc-123-...", "status": "waiting" }
 
 # Simulate approval
-curl -X POST https://n8n.coxserver.com/webhook/task-approve \
+curl -X POST https://n8n.ii-us.com/webhook/task-approve \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-004",
@@ -526,7 +526,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-approve \
 **Test 3.2: Human Checkpoint - Rejection Flow**
 ```bash
 # Same as above but with action=reject
-curl -X POST https://n8n.coxserver.com/webhook/task-approve \
+curl -X POST https://n8n.ii-us.com/webhook/task-approve \
   -d '{"ticket_id": "TEST-005", "token": "...", "action": "reject", "reason": "Needs more detail"}'
 
 # Expected: Checkpoint returns approved=false, reason="Needs more detail"
@@ -534,7 +534,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-approve \
 
 **Test 3.3: Master Orchestrator - Two Phase Test (Mock)**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/task-start \
+curl -X POST https://n8n.ii-us.com/webhook/task-start \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-006",
@@ -551,7 +551,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-start \
 
 **Test 3.4: Master Orchestrator - Full Pipeline (Mock)**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/task-start \
+curl -X POST https://n8n.ii-us.com/webhook/task-start \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "TEST-007",
@@ -568,7 +568,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-start \
 **Test 3.5: Master Orchestrator - With Approval Gate**
 ```bash
 # Start task requiring approval after planning
-curl -X POST https://n8n.coxserver.com/webhook/task-start \
+curl -X POST https://n8n.ii-us.com/webhook/task-start \
   -d '{
     "ticket_id": "TEST-008",
     "title": "Approval gate test",
@@ -596,7 +596,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-start \
 
 **Test 3.7: Orchestrator Execution Visualization**
 ```
-1. Navigate to: https://n8n.coxserver.com
+1. Navigate to: https://n8n.ii-us.com
 2. Go to: Executions
 3. Find: Master Orchestrator execution for TEST-007
 4. Verify: Execution shows all 6 phase calls
@@ -719,14 +719,14 @@ curl -X POST https://n8n.coxserver.com/webhook/task-start \
 **Test 4.1: Circuit Breaker - Opens on Auth Failures**
 ```bash
 # Trigger two auth failures in quick succession
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -d '{"mock": true, "mock_exit_code": 57}'
 sleep 2
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -d '{"mock": true, "mock_exit_code": 57}'
 
 # Verify circuit is now OPEN
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -d '{"mock": true, "mock_exit_code": 0}'
 
 # Expected: Returns circuit_open error without calling Claude
@@ -736,7 +736,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
 ```bash
 # After circuit opens, wait 15+ minutes
 # Then test again
-curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
+curl -X POST https://n8n.ii-us.com/webhook/test-agent-run \
   -d '{"mock": true, "mock_exit_code": 0}'
 
 # Expected: Circuit closed, call succeeds
@@ -744,7 +744,7 @@ curl -X POST https://n8n.coxserver.com/webhook/test-agent-run \
 
 **Test 4.3: Circuit Breaker - Manual Reset**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/circuit-reset
+curl -X POST https://n8n.ii-us.com/webhook/circuit-reset
 
 # Expected: Circuit state reset to closed
 ```
@@ -752,7 +752,7 @@ curl -X POST https://n8n.coxserver.com/webhook/circuit-reset
 **Test 4.4: Task Recovery - Detects Stuck Task**
 ```bash
 # Create a task and make it appear stuck
-curl -X POST https://n8n.coxserver.com/webhook/test-create-stuck-task \
+curl -X POST https://n8n.ii-us.com/webhook/test-create-stuck-task \
   -d '{
     "ticket_id": "TEST-STUCK-001",
     "status": "in_progress",
@@ -760,21 +760,21 @@ curl -X POST https://n8n.coxserver.com/webhook/test-create-stuck-task \
   }'
 
 # Manually trigger recovery scan
-curl -X POST https://n8n.coxserver.com/webhook/test-recovery-scan
+curl -X POST https://n8n.ii-us.com/webhook/test-recovery-scan
 
 # Expected: TEST-STUCK-001 detected, Teams alert sent
 ```
 
 **Test 4.5: Task Recovery - Resume Flow**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/task-resume/TEST-STUCK-001
+curl -X POST https://n8n.ii-us.com/webhook/task-resume/TEST-STUCK-001
 
 # Expected: Task resumes from last completed phase
 ```
 
 **Test 4.6: Task Recovery - Cancel Flow**
 ```bash
-curl -X POST https://n8n.coxserver.com/webhook/task-cancel/TEST-STUCK-002
+curl -X POST https://n8n.ii-us.com/webhook/task-cancel/TEST-STUCK-002
 
 # Expected: Task status=cancelled, workspace cleaned up
 ```
@@ -801,7 +801,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-cancel/TEST-STUCK-002
 
 **Test 4.9: Recovery Workflow Execution Log**
 ```
-1. Navigate to: https://n8n.coxserver.com
+1. Navigate to: https://n8n.ii-us.com
 2. Go to: Executions
 3. Filter by: "Task Recovery" workflow
 4. Find: Recent scheduled execution
@@ -813,7 +813,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-cancel/TEST-STUCK-002
 **Test 4.10: Full Pipeline with Real Agent**
 ```bash
 # Production-like test with real Claude Agent
-curl -X POST https://n8n.coxserver.com/webhook/task-start \
+curl -X POST https://n8n.ii-us.com/webhook/task-start \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "E2E-TEST-001",
@@ -840,7 +840,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-start \
 **Test 4.11: Chaos Test - Kill Workflow Mid-Execution**
 ```bash
 # Start a long-running task
-curl -X POST https://n8n.coxserver.com/webhook/task-start \
+curl -X POST https://n8n.ii-us.com/webhook/task-start \
   -d '{"ticket_id": "CHAOS-001", ...}'
 
 # While in implementation phase, restart n8n
@@ -855,7 +855,7 @@ curl -X POST https://n8n.coxserver.com/webhook/task-start \
 ```bash
 # Start 5 tasks simultaneously
 for i in {1..5}; do
-  curl -X POST https://n8n.coxserver.com/webhook/task-start \
+  curl -X POST https://n8n.ii-us.com/webhook/task-start \
     -d '{"ticket_id": "LOAD-00'$i'", "mock": true}' &
 done
 wait
