@@ -48,7 +48,10 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
-    throw new ApiError(response.status, error.error || 'Request failed', error.details);
+    // Use message field if available (e.g., "n8n integration is not configured")
+    // Fall back to error field, then generic message
+    const errorMessage = error.message || error.error || 'Request failed';
+    throw new ApiError(response.status, errorMessage, error.details);
   }
 
   return response;

@@ -14,6 +14,7 @@ spec:
     metadata:
       labels:
         app: ops-dashboard
+        azure.workload.identity/use: "true"
     spec:
       serviceAccountName: ops-dashboard
       securityContext:
@@ -25,7 +26,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dashboard
-          image: iiusacr.azurecr.io/ops-dashboard:v1.0.19
+          image: iiusacr.azurecr.io/ops-dashboard:v1.0.21
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
@@ -70,6 +71,30 @@ spec:
                 configMapKeyRef:
                   name: ops-dashboard-config
                   key: HEALTH_POLL_INTERVAL_MS
+                  optional: true
+            # Azure Storage configuration
+            - name: AZURE_STORAGE_ACCOUNT
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: AZURE_STORAGE_ACCOUNT
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: AZURE_CLIENT_ID
+            # n8n configuration
+            - name: N8N_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ops-dashboard-config
+                  key: N8N_API_URL
+                  optional: true
+            - name: N8N_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ops-dashboard-secrets
+                  key: N8N_API_KEY
                   optional: true
           resources:
             requests:
