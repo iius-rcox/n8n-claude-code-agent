@@ -317,21 +317,119 @@ lease_holder: null                  # Set during active operations
         └─────────┘
 ```
 
-### 3.4 Transition Rules
+### 3.4 Formal Transition Rules
 
-| From Phase | To Phase | Condition |
-|------------|----------|-----------|
-| `intake` | `planning` | spec.md created, no clarifications needed |
-| `intake` | `escalated` | `needs_clarification` flag set |
-| `planning` | `implementation` | plan.md and tasks.md created |
-| `implementation` | `verification` | PR created, all tasks implemented |
-| `verification` | `review` | All acceptance criteria passed |
-| `verification` | `implementation` | Issues found, cycle_count < 3 |
-| `verification` | `escalated` | Issues found, cycle_count >= 3 |
-| `review` | `release` | Review approved |
-| `review` | `implementation` | Changes requested, cycle_count < 2 |
-| `review` | `escalated` | Changes requested, cycle_count >= 2 |
-| `release` | `completed` | PR merged successfully |
+#### Status Transitions
+
+| From | To | Trigger | Guard | Idempotency |
+|------|----|---------| ------|-------------|
+| `pending` | `in_progress` | Task processor picks up task | `phase = intake`, no lease held | Safe: No-op if already `in_progress` |
+| `in_progress` | `blocked` | Transient failure detected | `exit_code ∈ {23, 124}`, retries < max | Safe: State preserved, retry counter incremented |
+| `blocked` | `in_progress` | Blocker resolved | Lease available, retry backoff elapsed | Safe: Restarts from last checkpoint |
+| `in_progress` | `escalated` | Human intervention needed | Retry limit exceeded OR security issue | Safe: No-op if already `escalated` |
+| `escalated` | `in_progress` | Human resolved | Resolution provided, task not stale | **NOT idempotent**: Resolution consumed on first transition |
+| `in_progress` | `paused` | User requests pause | User action via dashboard | Safe: Preserves current state |
+| `paused` | `in_progress` | User resumes | User action via dashboard | Safe: Resumes from pause point |
+| `in_progress` | `completed` | Release phase succeeds | `phase = release`, PR merged | Safe: Terminal state |
+| `in_progress` | `failed` | Unrecoverable error | Max retries on non-transient error | Safe: Terminal state |
+| `*` | `cancelled` | User cancels | User action, task not completed | Safe: Terminal state, resources cleaned |
+
+#### Phase Transitions
+
+| From Phase | To Phase | Guard (ALL must be true) | Side Effects |
+|------------|----------|--------------------------|--------------|
+| `intake` | `planning` | spec.md exists AND `needs_clarification = false` | PM Agent released |
+| `intake` | (escalated) | `needs_clarification = true` | Teams notification queued |
+| `planning` | `implementation` | plan.md exists AND tasks.md exists AND task_count > 0 | Task counter initialized |
+| `implementation` | `verification` | `current_task = total_tasks` AND PR exists AND CI passing | QA Agent invoked |
+| `verification` | `review` | `recommendation = "approve"` | Reviewer Agent invoked |
+| `verification` | `implementation` | `recommendation = "request_changes"` AND `cycle_count < 3` | Feedback routed to Dev, counter++ |
+| `verification` | (escalated) | `recommendation = "request_changes"` AND `cycle_count >= 3` | Teams notification, task paused |
+| `review` | `release` | `assessment = "approve"` AND no blocking comments | Merge eligibility confirmed |
+| `review` | `implementation` | `assessment = "request_changes"` AND `cycle_count < 2` | Feedback routed to Dev, counter++ |
+| `review` | (escalated) | `assessment = "request_changes"` AND `cycle_count >= 2` | Teams notification, task paused |
+| `release` | (completed) | PR merged successfully | Task finalized, notifications sent |
+
+### 3.5 Idempotency & Concurrency Semantics
+
+#### Optimistic Locking
+All task envelope updates use optimistic locking via the `version` field:
+
+```yaml
+# Update precondition
+UPDATE task_envelope
+SET status = 'in_progress', version = version + 1
+WHERE task_id = 'FEAT-xxx' AND version = expected_version
+```
+
+If `expected_version` doesn't match, update fails with `VERSION_MISMATCH` error. Caller must re-read and retry.
+
+#### Lease-Based Mutual Exclusion
+State-modifying operations MUST hold a blob lease:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        LEASE ACQUISITION PROTOCOL                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  Workflow starts         Acquire lease         Modify state
+       │                      │                     │
+       ▼                      ▼                     ▼
+  ┌─────────────┐      ┌─────────────┐      ┌─────────────┐
+  │ Read        │      │ PUT blob    │      │ PUT blob    │
+  │ current     │─────▶│ ?comp=lease │─────▶│ with new    │
+  │ state       │      │ acquire     │      │ state       │
+  └─────────────┘      └─────────────┘      └──────┬──────┘
+                             │                     │
+                       Lease ID returned           │
+                             │                     ▼
+                             │              ┌─────────────┐
+                             │              │ PUT blob    │
+                             └─────────────▶│ ?comp=lease │
+                                            │ release     │
+                                            └─────────────┘
+
+  Lease duration: 60 seconds
+  Retry on conflict: 3 attempts with 5s backoff
+  Force break: Only via manual intervention or Task Recovery workflow
+```
+
+#### Idempotent Operations
+
+| Operation | Idempotent? | Implementation |
+|-----------|-------------|----------------|
+| Create task | Yes | Check existence first, return existing task_id |
+| Update status | Yes (mostly) | Version check prevents duplicate updates |
+| Upload artifact | Yes | Content-addressable: same content = same result |
+| Trigger notification | No | Deduplicate via notification_id in task envelope |
+| Increment retry counter | No | Protected by lease, version check |
+| Escalate to human | No | One-time state change, subsequent calls rejected |
+
+#### At-Least-Once Delivery
+n8n workflows may execute multiple times due to retries. Design assumes:
+- Read operations are always safe
+- Write operations check preconditions (version, status guards)
+- Side effects (notifications) tracked to prevent duplicates
+
+### 3.6 Recovery Points
+
+Each phase defines a recovery checkpoint for restart after failure:
+
+| Phase | Recovery Point | State Preserved |
+|-------|----------------|-----------------|
+| `intake` | Start of phase | Request data (immutable) |
+| `planning` | After spec.md saved | spec.md in blob |
+| `implementation` | After each commit | `current_task`, `commits[]` in envelope |
+| `verification` | After report saved | verification-report.yml in blob |
+| `review` | After report saved | review-report.yml in blob |
+| `release` | Before merge | PR URL, all approvals recorded |
+
+**Recovery procedure**:
+1. Task Recovery workflow scans for stuck tasks (>2 hours in same phase)
+2. For each stuck task, determine recovery point
+3. Reset to recovery point, clear transient errors
+4. Re-queue for processing
+5. Alert if recovery attempted >3 times for same phase
 
 ---
 

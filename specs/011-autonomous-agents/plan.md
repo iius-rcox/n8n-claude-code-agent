@@ -49,7 +49,8 @@ specs/011-autonomous-agents/
 ├── contracts/           # Phase 1 output
 │   ├── task-envelope-schema.yaml
 │   ├── agent-runner-api.yaml
-│   └── blob-state-api.yaml
+│   ├── blob-state-api.yaml
+│   └── schema-versioning.md    # Phase 2.5 output
 ├── checklists/
 │   └── requirements.md  # Quality checklist (complete)
 └── tasks.md             # Phase 2 output (created by /speckit.tasks)
@@ -130,7 +131,26 @@ agent-prompts/              # NEW: System prompts for each agent role
 | Phase 0: Research | ✅ Complete | [research.md](./research.md) |
 | Phase 1: Design | ✅ Complete | [data-model.md](./data-model.md), [contracts/](./contracts/), [quickstart.md](./quickstart.md) |
 | Phase 2: Tasks | ✅ Complete | [tasks.md](./tasks.md) |
+| Phase 2.5: Spec Enhancement | ✅ Complete | Gap analysis remediation (see below) |
 | Phase 3: Implementation | ⏳ Pending | n8n workflows, schemas, prompts |
+
+### Phase 2.5: Specification Gap Remediation
+
+Following `/speckit.analyze`, the specification was enhanced to address identified gaps:
+
+| Gap | Resolution | Added To |
+|-----|------------|----------|
+| Missing NFRs | Added 17 NFRs covering availability, latency, durability, scalability | spec.md §NFRs |
+| No security model | Added 22 security requirements (SEC-001 to SEC-022) | spec.md §Security |
+| Underspecified state machine | Formalized transition guards, idempotency semantics, recovery points | data-model.md §3.4-3.6 |
+| Missing observability plan | Added 15 observability requirements (metrics, logging, alerting) | spec.md §Observability |
+| Unrealistic success criteria | Rewritten with measurement sources, constraints, and realistic targets | spec.md §Success Criteria |
+| No schema versioning | Created comprehensive versioning strategy | contracts/schema-versioning.md |
+| Ambiguous clarification flow | Documented resolution flow with Teams integration | spec.md §Operational Procedures |
+| PR merge strategy unclear | Defined squash merge, gates, post-merge actions | spec.md §PR Merge Strategy |
+| Review responsibilities ambiguous | Added QA vs Reviewer comparison table | spec.md §Review Agent Responsibilities |
+| No cost controls | Added 9 cost requirements (COST-001 to COST-009) | spec.md §Cost Controls |
+| Schema missing versions | Updated task-envelope-schema.yaml with v1.1.0 metadata | contracts/task-envelope-schema.yaml |
 
 ---
 

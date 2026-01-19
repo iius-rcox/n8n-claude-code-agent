@@ -3,9 +3,21 @@
 # Location: agent-state/{task_id}/task-envelope.yml
 
 $schema: "https://json-schema.org/draft/2020-12/schema"
-$id: "https://ii-us.com/schemas/task-envelope.yaml"
+$id: "https://ii-us.github.io/schemas/task-envelope/v1.1.0"
 title: TaskEnvelope
 description: Central state object tracking a feature through its lifecycle
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VERSION METADATA
+# ─────────────────────────────────────────────────────────────────────────────
+x-version: "1.1.0"
+x-compatibility:
+  minimum_supported: "1.0.0"
+  deprecated_fields: []
+  added_in_version:
+    schema_version: "1.0.0"
+    clarifications: "1.1.0"
+    notification_ids: "1.1.0"
 
 type: object
 required:
@@ -23,6 +35,18 @@ required:
   - version
 
 properties:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # SCHEMA VERSION (for migration support)
+  # ─────────────────────────────────────────────────────────────────────────────
+  schema_version:
+    type: string
+    pattern: "^\\d+\\.\\d+\\.\\d+$"
+    default: "1.1.0"
+    description: "Schema version for migration support"
+    examples:
+      - "1.0.0"
+      - "1.1.0"
+
   # ─────────────────────────────────────────────────────────────────────────────
   # IDENTITY
   # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +106,28 @@ properties:
         type: string
         maxLength: 5000
         description: "User-defined success criteria"
+
+      clarifications:
+        type: array
+        description: "Clarification responses from user (added in v1.1.0)"
+        default: []
+        items:
+          type: object
+          required:
+            - question
+            - answer
+            - answered_at
+          properties:
+            question:
+              type: string
+              description: "Original question asked by PM Agent"
+            answer:
+              type: string
+              description: "User's response"
+            answered_at:
+              type: string
+              format: date-time
+              description: "When clarification was provided"
 
   # ─────────────────────────────────────────────────────────────────────────────
   # CURRENT STATE
@@ -168,6 +214,17 @@ properties:
   lease_holder:
     type: ["string", "null"]
     description: "Current lease holder identifier (null if not leased)"
+
+  notification_ids:
+    type: array
+    description: "Sent notification IDs for deduplication (added in v1.1.0)"
+    default: []
+    items:
+      type: string
+      pattern: "^[a-z]+_[a-f0-9]{8}$"
+      description: "Notification ID in format type_random8"
+    examples:
+      - ["created_a1b2c3d4", "escalated_e5f6g7h8", "completed_i9j0k1l2"]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DEFINITIONS

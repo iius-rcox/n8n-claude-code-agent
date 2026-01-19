@@ -209,6 +209,109 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 
 ## Requirements
 
+### Non-Functional Requirements (NFRs)
+
+#### Availability & Reliability
+- **NFR-001**: System MUST maintain 99% availability during business hours (6am-10pm CST, Mon-Fri)
+- **NFR-002**: System MUST recover from transient failures (network, storage) within 5 minutes without manual intervention
+- **NFR-003**: System MUST preserve task state across component restarts (pods, n8n workers)
+- **NFR-004**: System MUST handle AKS cluster upgrades without data loss (graceful shutdown with task persistence)
+
+#### Latency & Throughput
+- **NFR-005**: Form submission acknowledgment MUST return within 3 seconds
+- **NFR-006**: Phase transitions MUST trigger within 30 seconds of previous phase completion
+- **NFR-007**: System MUST support processing 10 concurrent tasks without queue starvation
+- **NFR-008**: Human escalation notifications MUST be sent within 60 seconds of trigger
+- **NFR-009**: Dashboard status updates MUST reflect within 30 seconds of state change
+
+#### Durability & Data Retention
+- **NFR-010**: Task envelopes MUST be retained for 90 days after completion/cancellation
+- **NFR-011**: Agent artifacts (spec.md, plan.md, etc.) MUST be retained for 1 year
+- **NFR-012**: Verification and review reports MUST be retained for 90 days
+- **NFR-013**: All state mutations MUST be persisted to Azure Blob before acknowledging success
+- **NFR-014**: System MUST NOT lose in-flight task state during unexpected pod termination
+
+#### Scalability
+- **NFR-015**: System MUST scale to 50 concurrent tasks with additional n8n workers (horizontal scaling)
+- **NFR-016**: Agent context MUST fit within 80KB budget (100KB max - 20KB buffer)
+- **NFR-017**: Individual agent executions MUST complete within 10 minutes (timeout with retry)
+
+### Security & Privacy Requirements
+
+#### Authentication & Authorization
+- **SEC-001**: All Azure Blob operations MUST use Workload Identity (no storage account keys)
+- **SEC-002**: All GitHub operations MUST use GitHub App installation tokens (no PATs)
+- **SEC-003**: Claude session tokens MUST be stored in Kubernetes secrets (not ConfigMaps)
+- **SEC-004**: n8n credentials MUST be stored encrypted using n8n's credential encryption
+- **SEC-005**: Dashboard access MUST require Azure AD authentication with MFA
+- **SEC-006**: Agent pods MUST run as non-root with read-only filesystem (except /tmp)
+
+#### Data Classification & Handling
+- **SEC-007**: Form submissions MAY contain internal business logic (Confidential - Internal)
+- **SEC-008**: Generated code MAY be committed to private repositories only
+- **SEC-009**: Agent prompts MUST NOT include production credentials, API keys, or PII
+- **SEC-010**: Sensitive patterns (passwords, tokens, keys) MUST be redacted before storage
+- **SEC-011**: Task envelopes MUST NOT store raw user credentials or secrets
+
+#### Encryption
+- **SEC-012**: All data at rest MUST be encrypted (Azure Blob SSE, AKS etcd encryption)
+- **SEC-013**: All data in transit MUST use TLS 1.2+ (HTTPS for all external calls)
+- **SEC-014**: GitHub App private key MUST be stored in Azure Key Vault (not in K8s secrets)
+
+#### Audit & Compliance
+- **SEC-015**: All state transitions MUST be logged with timestamp, actor, and before/after values
+- **SEC-016**: All escalations MUST be logged with reason and resolution
+- **SEC-017**: Agent invocations MUST log prompt hash (not full prompt) for audit trail
+- **SEC-018**: System MUST support audit export for compliance review (task history JSON)
+
+#### Vulnerability Management
+- **SEC-019**: Reviewer Agent MUST check for OWASP Top 10 vulnerability patterns
+- **SEC-020**: Critical security vulnerabilities MUST trigger immediate escalation (bypass retry limits)
+- **SEC-021**: Known vulnerable dependency patterns MUST be flagged in review
+- **SEC-022**: System MUST NOT auto-merge PRs with unresolved security comments
+
+### Observability Requirements
+
+#### Metrics (Prometheus/Azure Monitor)
+- **OBS-001**: System MUST expose task_count gauge by status (pending, in_progress, completed, failed)
+- **OBS-002**: System MUST expose phase_duration_seconds histogram by phase
+- **OBS-003**: System MUST expose agent_invocation_total counter by agent type and exit code
+- **OBS-004**: System MUST expose feedback_loop_cycles histogram by loop type (verification, review)
+- **OBS-005**: System MUST expose escalation_total counter by reason
+
+#### Logging (Structured JSON)
+- **OBS-006**: All logs MUST include task_id, phase, and correlation_id fields
+- **OBS-007**: Error logs MUST include exit_code, error_message, and stack_trace fields
+- **OBS-008**: Agent logs MUST include agent_type, duration_ms, and prompt_hash fields
+- **OBS-009**: State transition logs MUST include from_status, to_status, and trigger fields
+
+#### Tracing (Optional - Future)
+- **OBS-010**: Each task SHOULD have a distributed trace ID for end-to-end visibility
+- **OBS-011**: Agent invocations SHOULD be traced as child spans of task execution
+
+#### Alerting
+- **OBS-012**: Alert MUST fire when task stuck in same phase >2 hours
+- **OBS-013**: Alert MUST fire when auth failure (exit 57) detected
+- **OBS-014**: Alert MUST fire when error rate >10% over 15-minute window
+- **OBS-015**: Alert MUST fire when blob storage unavailable for >5 minutes
+
+### Cost & Resource Controls
+
+#### Compute
+- **COST-001**: Agent pods MUST have resource limits (CPU: 2 cores, Memory: 4GB)
+- **COST-002**: Concurrent agent executions MUST be limited to 10 per cluster
+- **COST-003**: Long-running agents (>10min) MUST be terminated and retried with reduced scope
+
+#### Storage
+- **COST-004**: Task artifacts older than retention period MUST be automatically deleted
+- **COST-005**: System MUST alert when storage usage exceeds 80% of quota
+- **COST-006**: Maximum artifact size MUST be limited (spec: 100KB, plan: 50KB, tasks: 100KB)
+
+#### API Usage
+- **COST-007**: GitHub API calls MUST be batched where possible (bulk status checks)
+- **COST-008**: Teams notifications MUST be rate-limited (max 10 per task per hour)
+- **COST-009**: Claude API usage MUST be tracked per task for cost attribution
+
 ### Functional Requirements
 
 #### Core Pipeline
@@ -291,16 +394,137 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 
 ### Measurable Outcomes
 
-- **SC-001**: 80% of well-defined feature requests complete all phases without human intervention
-- **SC-002**: Simple features (single-file changes, clear requirements) complete within 2 hours end-to-end
-- **SC-003**: System handles 10 concurrent feature requests without degradation
-- **SC-004**: Authentication failures are detected and alerted within 1 minute
-- **SC-005**: Human escalation triggers within 30 seconds of retry limit exceeded
-- **SC-006**: Users can track task progress in real-time via dashboard
-- **SC-007**: Zero security vulnerabilities introduced by agent-generated code (verified by Reviewer Agent)
-- **SC-008**: All agent decisions have audit trail (task envelope history, artifact chain)
-- **SC-009**: System recovers from transient failures (blob unavailable, network issues) without manual intervention
-- **SC-010**: Feedback loops resolve 70% of QA/Review issues without human involvement
+| ID | Criterion | Target | Measurement Source | Constraints |
+|----|-----------|--------|-------------------|-------------|
+| **SC-001** | Well-defined feature requests complete all phases autonomously | ≥80% | `task_count{status="completed"} / task_count{type="well_defined"}` | "Well-defined" = ≤3 acceptance criteria, single repo, no external dependencies |
+| **SC-002** | Simple features complete end-to-end | ≤2 hours | `phase_duration_seconds` histogram (sum all phases) | "Simple" = single-file change, ≤100 LOC delta, passing CI on base branch |
+| **SC-003** | Concurrent task handling without degradation | 10 tasks | Load test: 10 simultaneous form submissions, measure `phase_duration_seconds` variance | Degradation = >50% latency increase vs single task |
+| **SC-004** | Authentication failure detection and alerting | ≤60 seconds | Time from `exit_code=57` to Teams notification timestamp | Measured from Agent Runner response to notification webhook call |
+| **SC-005** | Human escalation trigger latency | ≤30 seconds | Time from retry limit exceeded to escalation notification | Measured from `cycle_count >= max_cycles` detection to Teams card |
+| **SC-006** | Real-time progress tracking | ≤30 seconds | Dashboard poll interval + backend query latency | Dashboard shows current phase within 30s of state change |
+| **SC-007** | Security vulnerability detection rate | ≥95% detection | OWASP benchmark: inject known vulnerability patterns, measure Reviewer Agent detection | Vulnerabilities = OWASP Top 10 patterns (SQLi, XSS, etc.) |
+| **SC-008** | Complete audit trail | 100% coverage | Audit export includes all state transitions, agent invocations, escalations | Every task has verifiable decision chain |
+| **SC-009** | Automatic recovery from transient failures | ≥95% | `(transient_failures - manual_interventions) / transient_failures` | Transient = blob timeout, network error, pod restart |
+| **SC-010** | Feedback loop resolution without human involvement | ≥70% | `feedback_loops_resolved_autonomously / total_feedback_loops` | Excludes security escalations (SEC-020) |
+
+### Success Criteria Clarifications
+
+**SC-002 Constraints**: The 2-hour target applies only to "simple" features defined as:
+- Single file modified (not counting tests)
+- ≤100 lines of code changed
+- Target repository has passing CI on base branch
+- No external service dependencies (databases, APIs)
+- Clear, unambiguous acceptance criteria
+
+**SC-007 Realism**: "Zero vulnerabilities" is aspirational. The realistic metric is detection rate:
+- Reviewer Agent MUST detect ≥95% of injected OWASP Top 10 patterns
+- System MUST block PRs with detected critical vulnerabilities
+- Undetected vulnerabilities found post-merge are tracked and trigger Reviewer prompt improvements
+
+## Operational Procedures
+
+### Clarification Resolution Flow
+
+When PM Agent sets `needs_clarification`:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CLARIFICATION RESOLUTION FLOW                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  PM Agent detects              System pauses task         Teams notification
+  ambiguity                     and updates state          sent to requester
+      │                              │                           │
+      ▼                              ▼                           ▼
+┌─────────────┐              ┌─────────────────┐         ┌─────────────────┐
+│ Intake      │              │ Task Envelope   │         │ Adaptive Card   │
+│ generates   │─────────────▶│ status: escalated│────────▶│ with questions  │
+│ questions   │              │ phase: intake    │         │ and buttons     │
+└─────────────┘              └─────────────────┘         └─────────────────┘
+                                                                  │
+                                                         User interacts
+                                                                  │
+                              ┌────────────────────────────┬──────┴──────┐
+                              │                            │             │
+                              ▼                            ▼             ▼
+                       ┌─────────────┐              ┌─────────────┐ ┌─────────┐
+                       │ User clicks │              │ User types  │ │ Timeout │
+                       │ preset      │              │ custom      │ │ 7 days  │
+                       │ answer      │              │ answer      │ │         │
+                       └──────┬──────┘              └──────┬──────┘ └────┬────┘
+                              │                            │             │
+                              └────────────┬───────────────┘             │
+                                           │                             │
+                                           ▼                             ▼
+                              ┌─────────────────────┐         ┌─────────────────┐
+                              │ Clarification       │         │ Task marked     │
+                              │ appended to request │         │ status: stale   │
+                              │ Task resumes intake │         │ Admin notified  │
+                              └─────────────────────┘         └─────────────────┘
+```
+
+**Clarification Capture**:
+- Teams webhook receives user response via Power Automate flow
+- Response is appended to `task_envelope.request.clarifications[]`
+- PM Agent re-processes intake with original request + clarifications
+- Maximum 2 clarification rounds before forced escalation to admin
+
+### PR Merge Strategy & Release Gating
+
+**Merge Strategy**: Squash and Merge (single commit per feature)
+
+**Pre-Merge Gates** (all MUST pass):
+1. ✅ QA Agent verification report: `recommendation = "approve"`
+2. ✅ Reviewer Agent assessment: `assessment = "approve"`
+3. ✅ CI pipeline passes on feature branch
+4. ✅ No merge conflicts with base branch
+5. ✅ No unresolved security comments (blocking severity)
+
+**Merge Execution**:
+```yaml
+merge_config:
+  strategy: squash
+  commit_message_template: |
+    feat({scope}): {title} (#{pr_number})
+
+    Task: {task_id}
+
+    {body_summary}
+  delete_branch_after_merge: true
+  auto_merge_enabled: false  # Dev Agent explicitly triggers merge
+```
+
+**Post-Merge Actions**:
+1. Delete feature branch
+2. Update task envelope: `phases.release.status = "completed"`
+3. Generate release notes (optional, stored in `agent-release/`)
+4. Send completion notification to requester
+5. Update dashboard metrics
+
+### Review Agent Responsibilities (Clarified)
+
+The Reviewer Agent performs **code review**, distinct from QA verification:
+
+| Aspect | QA Agent | Reviewer Agent |
+|--------|----------|----------------|
+| **Focus** | Functional correctness | Code quality & security |
+| **Inputs** | Tests, acceptance criteria | PR diff, coding standards |
+| **Checks** | Tests pass, criteria met | Patterns, vulnerabilities, style |
+| **Output** | verification-report.yml | review-report.yml |
+| **Decision** | "Tests pass/fail" | "Approve/Request changes" |
+
+**Reviewer Agent Scope**:
+- Security: OWASP Top 10 patterns, credential exposure, injection risks
+- Correctness: Logic errors, null checks, error handling
+- Performance: O(n²) patterns, memory leaks, unoptimized queries
+- Style: Project conventions, naming, documentation
+- Dependencies: Version compatibility, license compliance
+
+**Out of Scope for Reviewer Agent**:
+- Running tests (QA responsibility)
+- Verifying acceptance criteria (QA responsibility)
+- Architectural decisions (human review if significant)
+- Performance benchmarking (manual if needed)
 
 ## Assumptions
 
@@ -311,3 +535,4 @@ The ops-dashboard shows real-time status of all tasks in the pipeline, including
 - Teams webhooks are configured for notifications
 - SpecKit templates exist and define expected document formats
 - The ops-dashboard is deployed and can be extended for task pipeline visibility
+- Power Automate flow exists for Teams → n8n clarification callback
