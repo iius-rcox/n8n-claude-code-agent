@@ -1,0 +1,436 @@
+# Blob State Manager API Contract
+# Azure Blob Storage operations for task state management
+# n8n Sub-Workflow: Blob State Manager
+
+openapi: "3.1.0"
+info:
+  title: Blob State Manager API
+  description: |
+    n8n sub-workflow contract for Azure Blob Storage operations.
+    Handles task envelope CRUD with lease management.
+  version: "1.0.0"
+
+# This is a sub-workflow contract, not an HTTP API
+# Defines input/output schemas for n8n Execute Workflow node
+
+x-n8n-subworkflow:
+  workflowName: "Blob State Manager"
+  workflowId: "{{ $env.WORKFLOW_ID_BLOB_STATE_MANAGER }}"
+
+components:
+  schemas:
+    # ─────────────────────────────────────────────────────────────────────────
+    # INPUT SCHEMAS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    CreateTaskInput:
+      type: object
+      required:
+        - operation
+        - task_id
+        - task_envelope
+      properties:
+        operation:
+          type: string
+          enum: [create]
+        task_id:
+          type: string
+          pattern: "^FEAT-\\d{8}-[a-z0-9]{6}$"
+        task_envelope:
+          $ref: "task-envelope-schema.yaml#"
+      example:
+        operation: create
+        task_id: "FEAT-20260119-abc123"
+        task_envelope:
+          task_id: "FEAT-20260119-abc123"
+          created_at: "2026-01-19T10:30:00Z"
+          status: pending
+          phase: intake
+
+    ReadTaskInput:
+      type: object
+      required:
+        - operation
+        - task_id
+      properties:
+        operation:
+          type: string
+          enum: [read]
+        task_id:
+          type: string
+          pattern: "^FEAT-\\d{8}-[a-z0-9]{6}$"
+      example:
+        operation: read
+        task_id: "FEAT-20260119-abc123"
+
+    UpdateTaskInput:
+      type: object
+      required:
+        - operation
+        - task_id
+        - updates
+      properties:
+        operation:
+          type: string
+          enum: [update]
+        task_id:
+          type: string
+          pattern: "^FEAT-\\d{8}-[a-z0-9]{6}$"
+        updates:
+          type: object
+          description: Partial task envelope fields to update
+        expected_version:
+          type: integer
+          description: For optimistic locking - update fails if version mismatch
+      example:
+        operation: update
+        task_id: "FEAT-20260119-abc123"
+        updates:
+          status: in_progress
+          phase: planning
+        expected_version: 3
+
+    UploadArtifactInput:
+      type: object
+      required:
+        - operation
+        - container
+        - path
+        - content
+      properties:
+        operation:
+          type: string
+          enum: [upload]
+        container:
+          type: string
+          enum: [agent-spec, agent-verification, agent-review, agent-release]
+        path:
+          type: string
+          description: "Blob path within container (e.g., FEAT-xxx/spec.md)"
+        content:
+          type: string
+          description: File content to upload
+        content_type:
+          type: string
+          default: "text/markdown"
+          enum: [text/markdown, text/yaml, application/json]
+      example:
+        operation: upload
+        container: agent-spec
+        path: "FEAT-20260119-abc123/spec.md"
+        content: "# Feature: User Authentication\n\n..."
+        content_type: text/markdown
+
+    DownloadArtifactInput:
+      type: object
+      required:
+        - operation
+        - container
+        - path
+      properties:
+        operation:
+          type: string
+          enum: [download]
+        container:
+          type: string
+          enum: [agent-spec, agent-verification, agent-review, agent-release]
+        path:
+          type: string
+      example:
+        operation: download
+        container: agent-spec
+        path: "FEAT-20260119-abc123/spec.md"
+
+    ListArtifactsInput:
+      type: object
+      required:
+        - operation
+        - container
+        - prefix
+      properties:
+        operation:
+          type: string
+          enum: [list]
+        container:
+          type: string
+          enum: [agent-state, agent-spec, agent-verification, agent-review, agent-release]
+        prefix:
+          type: string
+          description: "Blob prefix to filter (e.g., FEAT-xxx/)"
+      example:
+        operation: list
+        container: agent-spec
+        prefix: "FEAT-20260119-abc123/"
+
+    BreakLeaseInput:
+      type: object
+      required:
+        - operation
+        - task_id
+      properties:
+        operation:
+          type: string
+          enum: [break_lease]
+        task_id:
+          type: string
+          pattern: "^FEAT-\\d{8}-[a-z0-9]{6}$"
+      example:
+        operation: break_lease
+        task_id: "FEAT-20260119-abc123"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # OUTPUT SCHEMAS
+    # ─────────────────────────────────────────────────────────────────────────
+
+    SuccessResponse:
+      type: object
+      required:
+        - success
+        - operation
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        operation:
+          type: string
+        data:
+          type: object
+          description: Operation-specific response data
+
+    CreateTaskResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                blob_url:
+                  type: string
+                  format: uri
+      example:
+        success: true
+        operation: create
+        data:
+          task_id: "FEAT-20260119-abc123"
+          blob_url: "https://iiusagentstore.blob.core.windows.net/agent-state/FEAT-xxx/task-envelope.yml"
+
+    ReadTaskResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                task_envelope:
+                  $ref: "task-envelope-schema.yaml#"
+                version:
+                  type: integer
+                last_modified:
+                  type: string
+                  format: date-time
+
+    UpdateTaskResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                new_version:
+                  type: integer
+                lease_acquired:
+                  type: boolean
+                lease_released:
+                  type: boolean
+
+    UploadArtifactResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                container:
+                  type: string
+                path:
+                  type: string
+                blob_url:
+                  type: string
+                  format: uri
+                size_bytes:
+                  type: integer
+
+    DownloadArtifactResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                container:
+                  type: string
+                path:
+                  type: string
+                content:
+                  type: string
+                content_type:
+                  type: string
+                last_modified:
+                  type: string
+                  format: date-time
+
+    ListArtifactsResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                container:
+                  type: string
+                prefix:
+                  type: string
+                blobs:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                      size:
+                        type: integer
+                      last_modified:
+                        type: string
+                        format: date-time
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - operation
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        operation:
+          type: string
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - NOT_FOUND
+                - LEASE_CONFLICT
+                - VERSION_MISMATCH
+                - VALIDATION_ERROR
+                - AUTH_ERROR
+                - STORAGE_ERROR
+            message:
+              type: string
+            details:
+              type: object
+      examples:
+        leaseConflict:
+          value:
+            success: false
+            operation: update
+            error:
+              code: LEASE_CONFLICT
+              message: "Blob is currently leased by another process"
+              details:
+                lease_holder: "workflow-xyz"
+                retry_after_ms: 5000
+        notFound:
+          value:
+            success: false
+            operation: read
+            error:
+              code: NOT_FOUND
+              message: "Task envelope not found"
+              details:
+                task_id: "FEAT-20260119-abc123"
+        versionMismatch:
+          value:
+            success: false
+            operation: update
+            error:
+              code: VERSION_MISMATCH
+              message: "Expected version 3 but found version 5"
+              details:
+                expected_version: 3
+                actual_version: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# n8n Workflow Implementation Notes
+# ─────────────────────────────────────────────────────────────────────────────
+x-n8n-implementation:
+  nodes:
+    - name: "Sub-Workflow Trigger"
+      type: "n8n-nodes-base.executeWorkflowTrigger"
+      description: Entry point for sub-workflow
+
+    - name: "Switch Operation"
+      type: "n8n-nodes-base.switch"
+      description: Route based on operation field
+      routes:
+        - create
+        - read
+        - update
+        - upload
+        - download
+        - list
+        - break_lease
+
+    - name: "Get Azure Token"
+      type: "n8n-nodes-base.httpRequest"
+      description: |
+        Fetch Azure AD token via workload identity.
+        Endpoint: Azure Instance Metadata Service
+        Scope: https://storage.azure.com/.default
+
+    - name: "Acquire Lease"
+      type: "n8n-nodes-base.httpRequest"
+      description: |
+        PUT to blob?comp=lease with x-ms-lease-action: acquire
+        Only for update operations
+
+    - name: "Release Lease"
+      type: "n8n-nodes-base.httpRequest"
+      description: |
+        PUT to blob?comp=lease with x-ms-lease-action: release
+        Always release on success or error
+
+  leaseManagement:
+    duration: 60
+    retryOnConflict: true
+    maxRetries: 3
+    retryDelayMs: 5000
+
+  errorHandling:
+    description: |
+      All operations should catch errors and return ErrorResponse.
+      Lease operations must always release on error.
+    pattern: |
+      try {
+        acquireLease();
+        performOperation();
+        releaseLease();
+      } catch (e) {
+        releaseLease();  // Best effort
+        return ErrorResponse;
+      }

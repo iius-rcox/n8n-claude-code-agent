@@ -1,0 +1,251 @@
+# Agent Runner API Contract
+# HTTP API for Claude Agent execution
+# Server: infra/docker/server.js
+
+openapi: "3.1.0"
+info:
+  title: Claude Agent Runner API
+  description: |
+    HTTP wrapper around Claude CLI for n8n workflow integration.
+    Runs in claude-agent namespace on AKS.
+  version: "1.0.0"
+  contact:
+    name: II-US DevOps
+
+servers:
+  - url: http://claude-code-agent-svc.claude-agent.svc.cluster.local:3000
+    description: Internal Kubernetes service
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Liveness/readiness probe
+      description: |
+        Returns 200 when server is ready to accept requests.
+        Returns 503 during graceful shutdown.
+      responses:
+        "200":
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  timestamp:
+                    type: string
+                    format: date-time
+                  activeRequests:
+                    type: integer
+                    description: Number of in-flight /run requests
+              example:
+                status: ok
+                timestamp: "2026-01-19T10:30:00.000Z"
+                activeRequests: 2
+        "503":
+          description: Server is shutting down
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [shutting_down]
+
+  /run:
+    post:
+      operationId: runAgent
+      summary: Execute Claude CLI with prompt
+      description: |
+        Spawns Claude CLI as child process with provided prompt.
+        Waits for completion and returns output.
+
+        Exit codes:
+        - 0: Success
+        - 57: Authentication failure (tokens expired)
+        - 124: Timeout exceeded
+        - Other: General error
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RunRequest"
+            examples:
+              simple:
+                summary: Simple prompt
+                value:
+                  prompt: "Reply with: health check ok"
+              withTimeout:
+                summary: With custom timeout
+                value:
+                  prompt: "Analyze this codebase and generate a summary"
+                  timeout: 300000
+              withWorkingDir:
+                summary: With working directory
+                value:
+                  prompt: "List files in current directory"
+                  workingDir: "/workspace/my-repo"
+      responses:
+        "200":
+          description: Execution completed (check exitCode for success/failure)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RunResponse"
+              examples:
+                success:
+                  summary: Successful execution
+                  value:
+                    success: true
+                    output: "health check ok"
+                    exitCode: 0
+                    duration: 1234
+                authFailure:
+                  summary: Authentication failure
+                  value:
+                    success: false
+                    output: ""
+                    stderr: "Authentication required. Please run 'claude login'"
+                    exitCode: 57
+                    duration: 500
+                timeout:
+                  summary: Timeout exceeded
+                  value:
+                    success: false
+                    output: ""
+                    stderr: "Process killed after timeout"
+                    exitCode: 124
+                    duration: 300000
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missingPrompt:
+                  value:
+                    error: "Missing required field: prompt"
+                invalidTimeout:
+                  value:
+                    error: "timeout must be a positive number"
+        "503":
+          description: Server is shutting down
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+components:
+  schemas:
+    RunRequest:
+      type: object
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: |
+            The prompt to send to Claude CLI.
+            Should include system prompt + user prompt concatenated.
+        timeout:
+          type: integer
+          minimum: 1000
+          maximum: 600000
+          default: 300000
+          description: |
+            Maximum execution time in milliseconds.
+            Default: 300000 (5 minutes)
+            Maximum: 600000 (10 minutes)
+        workingDir:
+          type: string
+          pattern: "^/"
+          default: "/workspace"
+          description: |
+            Working directory for Claude CLI execution.
+            Must be absolute path starting with /.
+
+    RunResponse:
+      type: object
+      required:
+        - success
+        - exitCode
+        - duration
+      properties:
+        success:
+          type: boolean
+          description: True if exitCode is 0
+        output:
+          type: string
+          description: Claude's stdout output
+        stderr:
+          type: string
+          description: Claude's stderr output (errors, warnings)
+        exitCode:
+          type: integer
+          description: |
+            Process exit code:
+            - 0: Success
+            - 57: Auth failure
+            - 124: Timeout
+            - Other: Error
+        duration:
+          type: integer
+          description: Execution time in milliseconds
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: string
+          description: Error message
+
+# ─────────────────────────────────────────────────────────────────────────────
+# n8n Integration Notes
+# ─────────────────────────────────────────────────────────────────────────────
+x-n8n-integration:
+  httpRequestNode:
+    method: POST
+    url: "{{ $env.CLAUDE_AGENT_URL }}/run"
+    authentication: none  # Internal cluster communication
+    timeout: "={{ $json.timeout_ms + 10000 }}"  # Buffer for HTTP overhead
+
+  exitCodeRouting:
+    description: Use Switch node to route based on exitCode
+    routes:
+      - exitCode: 0
+        action: continue
+        description: Success - proceed to next phase
+      - exitCode: 23
+        action: retry
+        description: Lease conflict - wait 5s and retry
+      - exitCode: 57
+        action: alert
+        description: Auth failure - trigger token refresh
+      - exitCode: 124
+        action: retry_extended
+        description: Timeout - retry with extended timeout or smaller scope
+      - exitCode: other
+        action: error
+        description: General error - log and potentially retry
+
+  contextBudget:
+    maxPromptSize: 80000  # ~80KB
+    recommendation: |
+      Build prompts progressively:
+      1. System prompt (8KB max)
+      2. Task context (12KB max)
+      3. Relevant code (35KB max)
+      4. Previous artifacts (20KB max)
+      5. Working space (5KB buffer)
