@@ -59,7 +59,7 @@ spec:
 
       containers:
         - name: claude-agent
-          image: iiusacr.azurecr.io/claude-agent:v4.6.5
+          image: iiusacr.azurecr.io/claude-agent:v1.4.2-stdin-fix
           ports:
             - name: http
               containerPort: 3000

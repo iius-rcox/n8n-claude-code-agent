@@ -1,0 +1,230 @@
+# API Contract: System Health Overview
+# Feature: 010-dashboard-observability
+# Extends existing /api/health endpoint
+
+openapi: 3.0.3
+info:
+  title: Dashboard Health API
+  version: 2.0.0
+  description: Extended health monitoring API with component-level status
+
+paths:
+  /api/health:
+    get:
+      summary: Get comprehensive system health
+      description: Returns health status for all system components including pods, auth, storage, and n8n
+      tags:
+        - Health
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Health status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/health/components/{component}:
+    get:
+      summary: Get health for specific component type
+      tags:
+        - Health
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: component
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pod, auth, cronjob, storage, n8n]
+      responses:
+        '200':
+          description: Component health retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ComponentHealth'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Component type not found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    SystemHealthResponse:
+      type: object
+      required:
+        - timestamp
+        - overall
+        - components
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        overall:
+          type: string
+          enum: [healthy, unhealthy, degraded]
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentHealth'
+
+    ComponentHealth:
+      type: object
+      required:
+        - component
+        - name
+        - status
+        - lastChecked
+      properties:
+        component:
+          type: string
+          enum: [pod, service, auth, cronjob, storage, n8n]
+        name:
+          type: string
+        status:
+          type: string
+          enum: [healthy, unhealthy, unknown, pending, warning]
+        lastChecked:
+          type: string
+          format: date-time
+        message:
+          type: string
+        details:
+          oneOf:
+            - $ref: '#/components/schemas/PodDetails'
+            - $ref: '#/components/schemas/AuthDetails'
+            - $ref: '#/components/schemas/CronJobDetails'
+            - $ref: '#/components/schemas/StorageDetails'
+            - $ref: '#/components/schemas/N8nDetails'
+
+    PodDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          const: pod
+        phase:
+          type: string
+          enum: [Running, Pending, Failed, Succeeded, Unknown]
+        readyContainers:
+          type: integer
+        totalContainers:
+          type: integer
+        restartCount:
+          type: integer
+        lastRestartTime:
+          type: string
+          format: date-time
+        version:
+          type: string
+
+    AuthDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          const: auth
+        authenticated:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+        expiresInHours:
+          type: number
+        lastFailureTime:
+          type: string
+          format: date-time
+
+    CronJobDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          const: cronjob
+        schedule:
+          type: string
+        lastScheduleTime:
+          type: string
+          format: date-time
+        lastSuccessfulTime:
+          type: string
+          format: date-time
+        nextScheduledTime:
+          type: string
+          format: date-time
+        activeJobs:
+          type: integer
+
+    StorageDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          const: storage
+        account:
+          type: string
+        containers:
+          type: array
+          items:
+            type: string
+        accessibleContainers:
+          type: integer
+        totalContainers:
+          type: integer
+
+    N8nDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          const: n8n
+        version:
+          type: string
+        activeWorkflows:
+          type: integer
+        recentExecutions:
+          type: integer
+
+    ErrorResponse:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: string
+        statusCode:
+          type: integer

@@ -5,7 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { executePrompt, ExecutionResponse, ExecutionStatus } from '@/services/api';
-import { Play, Loader2, Terminal, Clock, AlertCircle, CheckCircle2, XCircle } from 'lucide-react';
+import { Play, Loader2, Terminal, Clock, AlertCircle, CheckCircle2, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
 
 const MAX_PROMPT_SIZE = 100 * 1024; // 100KB
 
@@ -58,6 +58,7 @@ export function AgentExecutor() {
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<ExecutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isCollapsed, setIsCollapsed] = useState(true); // Collapsed by default (advanced feature)
 
   const promptLength = prompt.length;
   const isOverLimit = promptLength > MAX_PROMPT_SIZE;
@@ -90,16 +91,45 @@ export function AgentExecutor() {
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center gap-2">
-          <Terminal className="h-5 w-5" />
-          <CardTitle>Execute Prompt</CardTitle>
+      <CardHeader
+        className={isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''}
+        onClick={() => isCollapsed && setIsCollapsed(false)}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Terminal className="h-5 w-5" />
+            <CardTitle>Execute Prompt</CardTitle>
+            {isCollapsed && isExecuting && (
+              <Badge variant="secondary">
+                <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                Running
+              </Badge>
+            )}
+            {isCollapsed && result && (
+              <Badge variant={getStatusBadgeVariant(result.status)}>
+                {result.status.replace('_', ' ')}
+              </Badge>
+            )}
+          </div>
+          {!isCollapsed && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(true);
+              }}
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+          )}
+          {isCollapsed && <ChevronDown className="h-4 w-4 text-muted-foreground" />}
         </div>
         <CardDescription>
-          Run an ad-hoc prompt against the Claude agent
+          {isCollapsed ? 'Click to expand and run prompts' : 'Run an ad-hoc prompt against the Claude agent'}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      {!isCollapsed && <CardContent className="space-y-4">
         <div className="space-y-2">
           <Textarea
             placeholder="Enter your prompt here..."
@@ -181,7 +211,7 @@ export function AgentExecutor() {
             )}
           </div>
         )}
-      </CardContent>
+      </CardContent>}
     </Card>
   );
 }
