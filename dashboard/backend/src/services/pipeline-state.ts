@@ -1,4 +1,4 @@
-import { parse } from 'yaml';
+import { parse, stringify } from 'yaml';
 import { BlobStorageService } from './blob-storage.js';
 import {
   TaskEnvelope,
@@ -28,13 +28,19 @@ export class PipelineStateService {
       // List blobs in agent-state container
       const blobList = await this.blobStorageService.listBlobs('agent-state', '', 100);
 
-      // Each task has a folder with task-envelope.yml
+      // Each task has a folder with task-envelope.yml or task-envelope.json
       for (const folder of blobList.folders) {
         try {
-          const envelopePath = `${folder}/task-envelope.yml`;
-          const content = await this.blobStorageService.getBlobContent('agent-state', envelopePath);
+          // Try YAML first, then JSON
+          let envelopePath = `${folder}/task-envelope.yml`;
+          let content = await this.blobStorageService.getBlobContent('agent-state', envelopePath).catch(() => null);
 
-          if (content.content) {
+          if (!content?.content) {
+            envelopePath = `${folder}/task-envelope.json`;
+            content = await this.blobStorageService.getBlobContent('agent-state', envelopePath);
+          }
+
+          if (content?.content) {
             const envelope = parse(content.content) as TaskEnvelope;
             // Ensure task_id is set from folder name if not in envelope
             if (!envelope.task_id) {
@@ -251,6 +257,72 @@ export class PipelineStateService {
       };
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Cancel a task by updating its status in the task envelope
+   */
+  async cancelTask(
+    taskId: string,
+    reason: string = 'Cancelled by user'
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const envelopePath = `${taskId}/task-envelope.yml`;
+      const content = await this.blobStorageService.getBlobContent('agent-state', envelopePath);
+
+      if (!content.content) {
+        return { success: false, message: `Task ${taskId} not found` };
+      }
+
+      const envelope = parse(content.content) as TaskEnvelope;
+
+      // Check if task can be cancelled
+      if (envelope.status === 'completed') {
+        return { success: false, message: 'Cannot cancel a completed task' };
+      }
+
+      if (envelope.status === 'cancelled') {
+        return { success: false, message: 'Task is already cancelled' };
+      }
+
+      // Update envelope with cancellation info
+      const updatedEnvelope: TaskEnvelope = {
+        ...envelope,
+        status: 'cancelled',
+        updated_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        cancellation: {
+          cancelled_at: new Date().toISOString(),
+          cancelled_by: 'dashboard_user',
+          reason,
+        },
+      };
+
+      // Add to phase history
+      if (!updatedEnvelope.phase_history) {
+        updatedEnvelope.phase_history = [];
+      }
+      updatedEnvelope.phase_history.push({
+        phase: envelope.phase,
+        started_at: envelope.phase_started_at || envelope.created_at,
+        ended_at: new Date().toISOString(),
+        outcome: 'cancelled',
+      });
+
+      // Save back to blob storage
+      const yamlContent = stringify(updatedEnvelope);
+      await this.blobStorageService.uploadBlob(
+        'agent-state',
+        envelopePath,
+        yamlContent,
+        'text/yaml'
+      );
+
+      return { success: true, message: `Task ${taskId} cancelled successfully` };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Failed to cancel task: ${errorMessage}` };
     }
   }
 }

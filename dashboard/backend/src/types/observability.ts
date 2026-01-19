@@ -146,6 +146,7 @@ export interface TaskEnvelope {
   repository?: string;
   created_at?: string;
   updated_at?: string;
+  completed_at?: string;
   created_by?: string;
   current_agent?: string;
   phase_started_at?: string;
@@ -157,12 +158,20 @@ export interface TaskEnvelope {
   artifacts?: TaskArtifacts;
   phase_history?: PhaseHistoryEntry[];
   error_history?: ErrorHistoryEntry[];
+  cancellation?: {
+    cancelled_at: string;
+    cancelled_by: string;
+    reason: string;
+  };
 }
 
 export interface PhaseHistoryEntry {
   phase: PipelinePhase;
-  status: 'started' | 'completed' | 'failed';
-  timestamp: string;
+  status?: 'started' | 'completed' | 'failed';
+  outcome?: 'completed' | 'failed' | 'cancelled';
+  timestamp?: string;
+  started_at?: string;
+  ended_at?: string;
   agent?: string;
   duration_ms?: number;
 }

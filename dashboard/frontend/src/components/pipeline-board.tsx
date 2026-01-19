@@ -34,6 +34,8 @@ import {
   Hourglass,
   Pause,
   Ban,
+  Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 // Phase colors for the Kanban columns
@@ -356,24 +358,31 @@ function TaskDetailPanel({
           onToggle={() => toggleSection('history')}
         >
           <div className="space-y-2">
-            {task.phaseHistory.map((entry, i) => (
-              <div key={i} className="flex items-start gap-2 text-sm">
-                {entry.status === 'completed' ? (
-                  <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
-                ) : entry.status === 'failed' ? (
-                  <XCircle className="h-4 w-4 text-red-500 mt-0.5" />
-                ) : (
-                  <Hourglass className="h-4 w-4 text-blue-500 mt-0.5" />
-                )}
-                <div className="flex-1">
-                  <div className="font-medium">{entry.phase}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(entry.timestamp).toLocaleString()}
-                    {entry.duration_ms && ` • ${formatDuration(entry.duration_ms)}`}
+            {task.phaseHistory.map((entry, i) => {
+              const outcome = entry.outcome || entry.status;
+              const dateStr = entry.ended_at || entry.started_at || entry.timestamp;
+              const displayDate = dateStr ? new Date(dateStr).toLocaleString() : 'Unknown';
+              return (
+                <div key={i} className="flex items-start gap-2 text-sm">
+                  {outcome === 'completed' ? (
+                    <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
+                  ) : outcome === 'failed' ? (
+                    <XCircle className="h-4 w-4 text-red-500 mt-0.5" />
+                  ) : outcome === 'cancelled' ? (
+                    <Ban className="h-4 w-4 text-orange-500 mt-0.5" />
+                  ) : (
+                    <Hourglass className="h-4 w-4 text-blue-500 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <div className="font-medium">{entry.phase}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {displayDate}
+                      {entry.duration_ms && ` • ${formatDuration(entry.duration_ms)}`}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CollapsibleSection>
       )}
@@ -443,9 +452,19 @@ function CollapsibleSection({
 
 // Main Pipeline Board Component
 export function PipelineBoard() {
-  const { pipeline, isLoading, error, refresh, selectedTask, selectTask, isLoadingTask } =
+  const { pipeline, isLoading, error, refresh, selectedTask, selectTask, isLoadingTask, cancelTask, isCancelling, isSocketConnected } =
     usePipeline();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const handleCancelTask = async () => {
+    if (!selectedTask) return;
+    setCancelError(null);
+    const result = await cancelTask(selectedTask.task.taskId);
+    if (!result.success) {
+      setCancelError(result.message);
+    }
+  };
 
   if (isLoading && !pipeline) {
     return (
@@ -493,6 +512,20 @@ export function PipelineBoard() {
               </CardTitle>
             </div>
             <div className="flex items-center gap-2">
+              {/* Real-time connection indicator */}
+              <div
+                className={`flex items-center gap-1 text-xs ${
+                  isSocketConnected ? 'text-green-500' : 'text-muted-foreground'
+                }`}
+                title={isSocketConnected ? 'Real-time updates active' : 'Connecting to real-time updates...'}
+              >
+                {isSocketConnected ? (
+                  <Wifi className="h-3 w-3" />
+                ) : (
+                  <WifiOff className="h-3 w-3" />
+                )}
+                <span className="hidden sm:inline">{isSocketConnected ? 'Live' : 'Offline'}</span>
+              </div>
               {!isCollapsed && (
                 <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
                   Collapse
@@ -567,7 +600,10 @@ export function PipelineBoard() {
       </Card>
 
       {/* Task Detail Dialog */}
-      <Dialog open={!!selectedTask || isLoadingTask} onOpenChange={() => selectTask(null)}>
+      <Dialog open={!!selectedTask || isLoadingTask} onOpenChange={() => {
+        selectTask(null);
+        setCancelError(null);
+      }}>
         <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Task Details</DialogTitle>
@@ -579,6 +615,48 @@ export function PipelineBoard() {
             task={selectedTask}
             isLoading={isLoadingTask}
           />
+          {/* Cancel Button Section */}
+          {selectedTask && !isLoadingTask && (
+            <div className="mt-4 pt-4 border-t">
+              {cancelError && (
+                <div className="flex items-center gap-2 text-destructive mb-3 text-sm">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>{cancelError}</span>
+                </div>
+              )}
+              {selectedTask.task.status !== 'completed' && selectedTask.task.status !== 'cancelled' && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-muted-foreground">
+                    Cancel this task if it's no longer needed
+                  </p>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={handleCancelTask}
+                    disabled={isCancelling}
+                    className="gap-2"
+                  >
+                    {isCancelling ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 animate-spin" />
+                        Cancelling...
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="h-4 w-4" />
+                        Cancel Task
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+              {(selectedTask.task.status === 'completed' || selectedTask.task.status === 'cancelled') && (
+                <p className="text-sm text-muted-foreground text-center">
+                  This task is {selectedTask.task.status} and cannot be modified
+                </p>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </>

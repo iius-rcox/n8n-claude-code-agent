@@ -6,6 +6,7 @@ import { createServer, Server } from 'http';
 import { getConfig, Config } from './config.js';
 import { errorHandler } from './api/middleware/error.js';
 import { createApiRouter } from './api/routes/index.js';
+import { websocketService } from './services/websocket.js';
 
 let server: Server | null = null;
 let isShuttingDown = false;
@@ -64,9 +65,13 @@ async function startServer(): Promise<void> {
   // Create HTTP server
   server = createServer(app);
 
+  // Initialize WebSocket server
+  websocketService.initialize(server);
+
   // Start listening
   server.listen(config.port, () => {
     console.log(`Operations Dashboard backend listening on port ${config.port}`);
+    console.log(`WebSocket server available at ws://localhost:${config.port}/socket.io`);
   });
 
   // Track connections for graceful shutdown

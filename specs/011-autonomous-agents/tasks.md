@@ -361,26 +361,26 @@ This is a multi-component project:
 
 ### Dashboard Backend Extensions
 
-- [ ] T164 [P] [US9] Add pipeline endpoint in `dashboard/backend/src/api/routes/pipeline.ts`
-- [ ] T165 [US9] Implement Azure Blob list for agent-state container to get all task envelopes
-- [ ] T166 [US9] Implement task detail endpoint with phase history
-- [ ] T167 [US9] Implement error history endpoint from task envelope errors array
-- [ ] T168 [US9] Add WebSocket support for real-time task updates
+- [x] T164 [P] [US9] Add pipeline endpoint in `dashboard/backend/src/api/routes/pipeline.ts`
+- [x] T165 [US9] Implement Azure Blob list for agent-state container to get all task envelopes
+- [x] T166 [US9] Implement task detail endpoint with phase history
+- [x] T167 [US9] Implement error history endpoint from task envelope errors array
+- [x] T168 [US9] Add WebSocket support for real-time task updates
 
 ### Dashboard Frontend Extensions
 
-- [ ] T169 [P] [US9] Create PipelinePanel component in `dashboard/frontend/src/components/PipelinePanel.tsx`
-- [ ] T170 [US9] Display task list with status, phase, last activity time
-- [ ] T171 [US9] Implement task detail view with error history
-- [ ] T172 [US9] Add task cancellation button calling cancel endpoint
-- [ ] T173 [US9] Implement real-time updates via WebSocket subscription
-- [ ] T174 [US9] Add phase progress visualization (6-step pipeline indicator)
+- [x] T169 [P] [US9] Create PipelinePanel component in `dashboard/frontend/src/components/PipelinePanel.tsx` (implemented as pipeline-board.tsx)
+- [x] T170 [US9] Display task list with status, phase, last activity time
+- [x] T171 [US9] Implement task detail view with error history
+- [x] T172 [US9] Add task cancellation button calling cancel endpoint
+- [x] T173 [US9] Implement real-time updates via WebSocket subscription
+- [x] T174 [US9] Add phase progress visualization (6-step pipeline indicator)
 
 ### Task Cancellation
 
-- [ ] T175 [US9] Add cancel endpoint in `dashboard/backend/src/api/routes/pipeline.ts`
-- [ ] T176 [US9] Implement task cancellation in Blob State Manager (update status to "cancelled")
-- [ ] T177 [US9] Stop in-progress workflows on cancellation
+- [x] T175 [US9] Add cancel endpoint in `dashboard/backend/src/api/routes/pipeline.ts`
+- [x] T176 [US9] Implement task cancellation in Blob State Manager (update status to "cancelled")
+- [ ] T177 [US9] Stop in-progress workflows on cancellation (deferred: workflows check task status at checkpoints)
 
 **Checkpoint**: User Story 9 complete - Full observability via dashboard
 

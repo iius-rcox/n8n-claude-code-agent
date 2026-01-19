@@ -379,8 +379,11 @@ export interface PipelineResponse {
 
 export interface PhaseHistoryEntry {
   phase: PipelinePhase;
-  status: 'started' | 'completed' | 'failed';
-  timestamp: string;
+  status?: 'started' | 'completed' | 'failed';
+  outcome?: 'completed' | 'failed' | 'cancelled';
+  timestamp?: string;
+  started_at?: string;
+  ended_at?: string;
   agent?: string;
   duration_ms?: number;
 }
@@ -419,6 +422,20 @@ export async function getPipeline(): Promise<PipelineResponse> {
 
 export async function getTaskDetail(taskId: string): Promise<TaskDetailResponse> {
   const response = await fetchWithAuth(`/api/pipeline/tasks/${taskId}`);
+  return response.json();
+}
+
+export interface CancelTaskResponse {
+  success: boolean;
+  message: string;
+  taskId: string;
+}
+
+export async function cancelTask(taskId: string, reason?: string): Promise<CancelTaskResponse> {
+  const response = await fetchWithAuth(`/api/pipeline/tasks/${taskId}/cancel`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
   return response.json();
 }
 
