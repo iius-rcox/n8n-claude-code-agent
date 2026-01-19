@@ -1,0 +1,27 @@
+# NetworkPolicy: Allow ops-dashboard to access n8n
+# Feature: 010-dashboard-observability
+# Purpose: Permit HTTP traffic from ops-dashboard pods to n8n on TCP 5678
+#
+# NOTE: This policy must be deployed to the n8n-prod namespace
+# because NetworkPolicy ingress rules only affect pods in the same namespace
+# as the policy.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ops-dashboard-to-n8n
+  namespace: n8n-prod
+spec:
+  podSelector:
+    matchLabels:
+      app: n8n
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ops-dashboard
+      ports:
+        - protocol: TCP
+          port: 5678

@@ -115,6 +115,13 @@ spec:
                       key: url
                 - name: AUTH_CHECK_TIMEOUT
                   value: "30"
+                # OAuth token for Claude authentication (same as main deployment)
+                - name: CLAUDE_CODE_OAUTH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: claude-oauth-token
+                      key: token
+                      optional: true
 
               volumeMounts:
                 - name: claude-home
