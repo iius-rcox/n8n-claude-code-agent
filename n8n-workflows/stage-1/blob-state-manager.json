@@ -1,0 +1,661 @@
+{
+  "name": "Blob State Manager",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://169.254.169.254/metadata/identity/oauth2/token",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "api-version", "value": "2019-08-01" },
+            { "name": "resource", "value": "https://storage.azure.com/" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Metadata", "value": "true" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_get_azure_token",
+      "name": "Get Azure Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "notes": "T011: Azure token via Workload Identity"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract token from Azure IMDS response\nconst tokenResponse = $input.first().json;\n\nif (!tokenResponse.body || !tokenResponse.body.access_token) {\n  throw new Error('Failed to get Azure token: ' + JSON.stringify(tokenResponse));\n}\n\nreturn [{\n  json: {\n    ...$('Sub-Workflow Trigger').first().json,\n    azure_token: tokenResponse.body.access_token,\n    token_expires_at: new Date(Date.now() + (tokenResponse.body.expires_in * 1000)).toISOString()\n  }\n}];"
+      },
+      "id": "code_parse_token",
+      "name": "Parse Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "create",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "create", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "read",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "read", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "update",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "update", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "upload",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "upload", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "download",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "download", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "list",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "list", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "break_lease",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.operation }}", "rightValue": "break_lease", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            }
+          ]
+        },
+        "fallbackOutput": "none"
+      },
+      "id": "route_operation",
+      "name": "Route Operation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [900, 300],
+      "notes": "T018: Switch node for operation routing"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-blob-type", "value": "BlockBlob" },
+            { "name": "Content-Type", "value": "text/yaml" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ JSON.stringify($json.task_envelope, null, 2) }}",
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_create_blob",
+      "name": "Create Task Blob",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 60],
+      "notes": "T012: Create blob with task envelope"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format create response\nconst response = $input.first().json;\nconst input = $('Parse Token').first().json;\n\nif (response.statusCode === 201) {\n  return [{\n    json: {\n      success: true,\n      operation: 'create',\n      data: {\n        task_id: input.task_id,\n        blob_url: `https://${process.env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore'}.blob.core.windows.net/agent-state/${input.task_id}/task-envelope.yml`\n      }\n    }\n  }];\n} else {\n  return [{\n    json: {\n      success: false,\n      operation: 'create',\n      error: {\n        code: 'STORAGE_ERROR',\n        message: `Failed to create blob: ${response.statusCode}`,\n        details: { statusCode: response.statusCode, body: response.body }\n      }\n    }\n  }];\n}"
+      },
+      "id": "code_format_create_response",
+      "name": "Format Create Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 60]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_read_blob",
+      "name": "Read Task Blob",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 180],
+      "notes": "T013: Read blob with error handling"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format read response with error handling\nconst response = $input.first().json;\nconst input = $('Parse Token').first().json;\n\nif (response.statusCode === 200) {\n  // Parse YAML content (treating as JSON-compatible for now)\n  let taskEnvelope;\n  try {\n    taskEnvelope = JSON.parse(response.body);\n  } catch (e) {\n    // If not JSON, return raw (would need yaml parser in production)\n    taskEnvelope = { raw: response.body };\n  }\n  \n  return [{\n    json: {\n      success: true,\n      operation: 'read',\n      data: {\n        task_envelope: taskEnvelope,\n        version: taskEnvelope.version || 1,\n        last_modified: response.headers['last-modified']\n      }\n    }\n  }];\n} else if (response.statusCode === 404) {\n  return [{\n    json: {\n      success: false,\n      operation: 'read',\n      error: {\n        code: 'NOT_FOUND',\n        message: 'Task envelope not found',\n        details: { task_id: input.task_id }\n      }\n    }\n  }];\n} else {\n  return [{\n    json: {\n      success: false,\n      operation: 'read',\n      error: {\n        code: 'STORAGE_ERROR',\n        message: `Failed to read blob: ${response.statusCode}`,\n        details: { statusCode: response.statusCode, body: response.body }\n      }\n    }\n  }];\n}"
+      },
+      "id": "code_format_read_response",
+      "name": "Format Read Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 180]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml?comp=lease",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-lease-action", "value": "acquire" },
+            { "name": "x-ms-lease-duration", "value": "60" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_acquire_lease",
+      "name": "Acquire Lease",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 300],
+      "notes": "T014: Acquire 60-second lease for update"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check lease acquisition result\nconst response = $input.first().json;\nconst input = $('Parse Token').first().json;\n\nif (response.statusCode === 201) {\n  const leaseId = response.headers['x-ms-lease-id'];\n  return [{\n    json: {\n      ...input,\n      lease_id: leaseId,\n      lease_acquired: true\n    }\n  }];\n} else if (response.statusCode === 409) {\n  // Lease conflict\n  return [{\n    json: {\n      success: false,\n      operation: 'update',\n      error: {\n        code: 'LEASE_CONFLICT',\n        message: 'Blob is currently leased by another process',\n        details: {\n          retry_after_ms: 5000\n        }\n      }\n    }\n  }];\n} else {\n  return [{\n    json: {\n      success: false,\n      operation: 'update',\n      error: {\n        code: 'STORAGE_ERROR',\n        message: `Failed to acquire lease: ${response.statusCode}`,\n        details: { statusCode: response.statusCode }\n      }\n    }\n  }];\n}"
+      },
+      "id": "code_check_lease",
+      "name": "Check Lease Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.lease_acquired }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_lease_acquired",
+      "name": "Lease Acquired?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1580, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-lease-id", "value": "={{ $json.lease_id }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_read_for_update",
+      "name": "Read Current State",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1800, 240]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge updates with current state\nconst response = $input.first().json;\nconst input = $('Check Lease Result').first().json;\n\nlet current;\ntry {\n  current = JSON.parse(response.body);\n} catch (e) {\n  current = {};\n}\n\n// Check version if expected_version provided\nif (input.expected_version && current.version !== input.expected_version) {\n  return [{\n    json: {\n      success: false,\n      operation: 'update',\n      error: {\n        code: 'VERSION_MISMATCH',\n        message: `Expected version ${input.expected_version} but found version ${current.version}`,\n        details: {\n          expected_version: input.expected_version,\n          actual_version: current.version\n        }\n      },\n      lease_id: input.lease_id,\n      task_id: input.task_id,\n      azure_token: input.azure_token,\n      needs_release: true\n    }\n  }];\n}\n\n// Merge updates\nconst updated = {\n  ...current,\n  ...input.updates,\n  updated_at: new Date().toISOString(),\n  version: (current.version || 0) + 1\n};\n\nreturn [{\n  json: {\n    ...input,\n    merged_envelope: updated\n  }\n}];"
+      },
+      "id": "code_merge_updates",
+      "name": "Merge Updates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2020, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success === false }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_version_error",
+      "name": "Version Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2240, 240]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-blob-type", "value": "BlockBlob" },
+            { "name": "x-ms-lease-id", "value": "={{ $json.lease_id }}" },
+            { "name": "Content-Type", "value": "text/yaml" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ JSON.stringify($json.merged_envelope, null, 2) }}",
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_write_updated",
+      "name": "Write Updated Blob",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2460, 180]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml?comp=lease",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-lease-action", "value": "release" },
+            { "name": "x-ms-lease-id", "value": "={{ $json.lease_id }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_release_lease",
+      "name": "Release Lease",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2680, 180],
+      "notes": "T014: Release lease after update"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format update success response\nconst input = $('Merge Updates').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    operation: 'update',\n    data: {\n      task_id: input.task_id,\n      new_version: input.merged_envelope.version,\n      lease_acquired: true,\n      lease_released: true\n    }\n  }\n}];"
+      },
+      "id": "code_format_update_response",
+      "name": "Format Update Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2900, 180]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml?comp=lease",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-lease-action", "value": "release" },
+            { "name": "x-ms-lease-id", "value": "={{ $json.lease_id }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000,
+          "allowUnauthorizedCerts": false
+        }
+      },
+      "id": "http_release_lease_on_error",
+      "name": "Release Lease (Error)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2460, 300]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/{{ $json.container }}/{{ $json.path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-blob-type", "value": "BlockBlob" },
+            { "name": "Content-Type", "value": "={{ $json.content_type || 'text/markdown' }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ $json.content }}",
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_upload_artifact",
+      "name": "Upload Artifact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 420],
+      "notes": "T015: Upload artifact to container"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format upload response\nconst response = $input.first().json;\nconst input = $('Parse Token').first().json;\n\nif (response.statusCode === 201) {\n  return [{\n    json: {\n      success: true,\n      operation: 'upload',\n      data: {\n        container: input.container,\n        path: input.path,\n        blob_url: `https://${process.env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore'}.blob.core.windows.net/${input.container}/${input.path}`,\n        size_bytes: (input.content || '').length\n      }\n    }\n  }];\n} else {\n  return [{\n    json: {\n      success: false,\n      operation: 'upload',\n      error: {\n        code: 'STORAGE_ERROR',\n        message: `Failed to upload artifact: ${response.statusCode}`,\n        details: { statusCode: response.statusCode, body: response.body }\n      }\n    }\n  }];\n}"
+      },
+      "id": "code_format_upload_response",
+      "name": "Format Upload Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 420]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/{{ $json.container }}/{{ $json.path }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_download_artifact",
+      "name": "Download Artifact",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 540],
+      "notes": "T016: Download artifact with content-type handling"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format download response\nconst response = $input.first().json;\nconst input = $('Parse Token').first().json;\n\nif (response.statusCode === 200) {\n  return [{\n    json: {\n      success: true,\n      operation: 'download',\n      data: {\n        container: input.container,\n        path: input.path,\n        content: response.body,\n        content_type: response.headers['content-type'],\n        last_modified: response.headers['last-modified']\n      }\n    }\n  }];\n} else if (response.statusCode === 404) {\n  return [{\n    json: {\n      success: false,\n      operation: 'download',\n      error: {\n        code: 'NOT_FOUND',\n        message: 'Artifact not found',\n        details: { container: input.container, path: input.path }\n      }\n    }\n  }];\n} else {\n  return [{\n    json: {\n      success: false,\n      operation: 'download',\n      error: {\n        code: 'STORAGE_ERROR',\n        message: `Failed to download artifact: ${response.statusCode}`,\n        details: { statusCode: response.statusCode }\n      }\n    }\n  }];\n}"
+      },
+      "id": "code_format_download_response",
+      "name": "Format Download Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 540]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://{{ $env.AZURE_STORAGE_ACCOUNT || 'iiusagentstore' }}.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.yml?comp=lease",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.azure_token }}" },
+            { "name": "x-ms-version", "value": "2021-08-06" },
+            { "name": "x-ms-lease-action", "value": "break" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_break_lease",
+      "name": "Break Lease",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 660],
+      "notes": "T017: Break stuck lease for admin recovery"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format break lease response\nconst response = $input.first().json;\nconst input = $('Parse Token').first().json;\n\nif (response.statusCode === 202) {\n  return [{\n    json: {\n      success: true,\n      operation: 'break_lease',\n      data: {\n        task_id: input.task_id,\n        message: 'Lease broken successfully'\n      }\n    }\n  }];\n} else {\n  return [{\n    json: {\n      success: false,\n      operation: 'break_lease',\n      error: {\n        code: 'STORAGE_ERROR',\n        message: `Failed to break lease: ${response.statusCode}`,\n        details: { statusCode: response.statusCode, body: response.body }\n      }\n    }\n  }];\n}"
+      },
+      "id": "code_format_break_response",
+      "name": "Format Break Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1360, 660]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "id": "merge_responses",
+      "name": "Merge Responses",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1580, 540]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.error ? $json.error.message : 'Unknown error in Blob State Manager' }}"
+      },
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 600],
+      "notes": "T019: Standardized error response"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format error for consistent output\nconst error = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    operation: 'unknown',\n    error: {\n      code: 'WORKFLOW_ERROR',\n      message: error.message || 'Workflow execution failed',\n      details: {\n        stack: error.stack,\n        node: error.node\n      }\n    }\n  }\n}];"
+      },
+      "id": "code_format_error",
+      "name": "Format Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 600]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Get Azure Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Azure Token": {
+      "main": [
+        [{ "node": "Parse Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Token": {
+      "main": [
+        [{ "node": "Route Operation", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route Operation": {
+      "main": [
+        [{ "node": "Create Task Blob", "type": "main", "index": 0 }],
+        [{ "node": "Read Task Blob", "type": "main", "index": 0 }],
+        [{ "node": "Acquire Lease", "type": "main", "index": 0 }],
+        [{ "node": "Upload Artifact", "type": "main", "index": 0 }],
+        [{ "node": "Download Artifact", "type": "main", "index": 0 }],
+        [],
+        [{ "node": "Break Lease", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Task Blob": {
+      "main": [
+        [{ "node": "Format Create Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Task Blob": {
+      "main": [
+        [{ "node": "Format Read Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Acquire Lease": {
+      "main": [
+        [{ "node": "Check Lease Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Lease Result": {
+      "main": [
+        [{ "node": "Lease Acquired?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lease Acquired?": {
+      "main": [
+        [{ "node": "Read Current State", "type": "main", "index": 0 }],
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Current State": {
+      "main": [
+        [{ "node": "Merge Updates", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Updates": {
+      "main": [
+        [{ "node": "Version Error?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Version Error?": {
+      "main": [
+        [{ "node": "Release Lease (Error)", "type": "main", "index": 0 }],
+        [{ "node": "Write Updated Blob", "type": "main", "index": 0 }]
+      ]
+    },
+    "Write Updated Blob": {
+      "main": [
+        [{ "node": "Release Lease", "type": "main", "index": 0 }]
+      ]
+    },
+    "Release Lease": {
+      "main": [
+        [{ "node": "Format Update Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload Artifact": {
+      "main": [
+        [{ "node": "Format Upload Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download Artifact": {
+      "main": [
+        [{ "node": "Format Download Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Break Lease": {
+      "main": [
+        [{ "node": "Format Break Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Create Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Read Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Update Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Upload Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Download Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Break Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Format Error Response", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-1" },
+    { "name": "infrastructure" }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-19T00:00:00.000Z",
+  "versionId": "1"
+}

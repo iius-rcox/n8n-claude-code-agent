@@ -1,0 +1,578 @@
+{
+  "name": "Master Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "orchestrator/resume",
+        "options": {}
+      },
+      "id": "webhook_resume",
+      "name": "Resume Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "orchestrator-resume",
+      "notes": "T087: Webhook trigger for task resume events"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T088: Load task envelope from blob storage\nconst inputData = $input.first().json;\n\nif (!inputData.task_id) {\n  throw new Error('Missing required field: task_id');\n}\n\nreturn [{\n  json: {\n    operation: 'read',\n    container: 'agent-state',\n    blob_path: `${inputData.task_id}/task-envelope.yml`,\n    task_id: inputData.task_id,\n    resume_source: inputData.resume_source || 'webhook'\n  }\n}];"
+      },
+      "id": "code_prepare_load",
+      "name": "Prepare Load Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T088: Prepare blob read request"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_load",
+      "name": "Load Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T088: Load task envelope via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T089: Determine current phase from task envelope\nconst blobResult = $input.first().json;\nconst prepareData = $('Prepare Load Task').first().json;\n\nif (!blobResult.success) {\n  throw new Error(`Failed to load task envelope: ${blobResult.error || 'Not found'}`);\n}\n\n// Parse the YAML envelope (simplified parsing)\nconst content = blobResult.content || '';\n\n// Extract key fields from YAML\nconst phaseMatch = content.match(/phase:\\s*(\\w+)/);\nconst statusMatch = content.match(/status:\\s*(\\w+)/);\nconst taskIdMatch = content.match(/task_id:\\s*([\\w-]+)/);\nconst currentTaskMatch = content.match(/current_task:\\s*(\\d+)/);\nconst totalTasksMatch = content.match(/total_tasks:\\s*(\\d+)/);\nconst prUrlMatch = content.match(/pr_url:\\s*([^\\n]+)/);\n\nconst phase = phaseMatch ? phaseMatch[1] : 'intake';\nconst status = statusMatch ? statusMatch[1] : 'pending';\nconst taskId = taskIdMatch ? taskIdMatch[1] : prepareData.task_id;\nconst currentTask = currentTaskMatch ? parseInt(currentTaskMatch[1]) : 1;\nconst totalTasks = totalTasksMatch ? parseInt(totalTasksMatch[1]) : 0;\nconst prUrl = prUrlMatch ? prUrlMatch[1].trim() : null;\n\n// Determine next action based on phase and status\nlet nextAction = 'unknown';\nlet needsHuman = false;\n\nswitch (phase) {\n  case 'intake':\n    nextAction = 'intake';\n    break;\n  case 'planning':\n    nextAction = 'planning';\n    break;\n  case 'implementation':\n    if (currentTask <= totalTasks) {\n      nextAction = 'implementation';\n    } else {\n      nextAction = 'verification';\n    }\n    break;\n  case 'verification':\n    nextAction = 'verification';\n    break;\n  case 'review':\n    nextAction = 'review';\n    break;\n  case 'release':\n    nextAction = 'release';\n    break;\n  case 'completed':\n    nextAction = 'completed';\n    break;\n  default:\n    nextAction = 'intake';\n}\n\n// Check if task is blocked/escalated\nif (status === 'escalated' || status === 'blocked') {\n  needsHuman = true;\n  nextAction = 'human_required';\n}\n\nreturn [{\n  json: {\n    task_id: taskId,\n    phase: phase,\n    status: status,\n    current_task: currentTask,\n    total_tasks: totalTasks,\n    pr_url: prUrl,\n    next_action: nextAction,\n    needs_human: needsHuman,\n    envelope_content: content\n  }\n}];"
+      },
+      "id": "code_determine_phase",
+      "name": "Determine Phase",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T089: Determine current phase and next action"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "intake", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "intake"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "planning", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "planning"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "implementation", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "implementation"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "verification", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "verification"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "review", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "review"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "release", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "release"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "completed", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "completed"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  { "leftValue": "={{ $json.next_action }}", "rightValue": "human_required", "operator": { "type": "string", "operation": "equals" } }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "human_required"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch_phase",
+      "name": "Route by Phase",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [1120, 300],
+      "notes": "Route to appropriate phase handler"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T090: Prepare for PM Intake call\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    task_envelope: data.envelope_content\n  }\n}];"
+      },
+      "id": "code_prepare_intake",
+      "name": "Prepare Intake",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 100],
+      "notes": "T090: Prepare PM Intake call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.PM_INTAKE_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_pm_intake",
+      "name": "PM Intake",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 100],
+      "notes": "T090: Call PM Intake workflow"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.needs_human }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_intake_needs_human",
+      "name": "Needs Clarification?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 100],
+      "notes": "T090: Check if clarification needed"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T091: Prepare for PM Planning call\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_planning",
+      "name": "Prepare Planning",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 220],
+      "notes": "T091: Prepare PM Planning call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.PM_PLANNING_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_pm_planning",
+      "name": "PM Planning",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 220],
+      "notes": "T091: Call PM Planning workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T091: Prepare for PM Tasks call\nconst data = $('Prepare Planning').first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_tasks",
+      "name": "Prepare Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 220],
+      "notes": "T091: Prepare PM Tasks call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.PM_TASKS_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_pm_tasks",
+      "name": "PM Tasks",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2000, 220],
+      "notes": "T091: Call PM Tasks workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T092: Prepare for Dev Implementation call\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task\n  }\n}];"
+      },
+      "id": "code_prepare_implementation",
+      "name": "Prepare Implementation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 340],
+      "notes": "T092: Prepare Dev Implementation call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.DEV_IMPLEMENTATION_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_dev_implementation",
+      "name": "Dev Implementation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 340],
+      "notes": "T092: Call Dev Implementation workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T093: Prepare for QA Verification call (placeholder)\nconst data = $input.first().json;\nconst implResult = $('Dev Implementation').first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    pr_url: implResult.pr_url || data.pr_url,\n    phase: 'verification'\n  }\n}];"
+      },
+      "id": "code_prepare_verification",
+      "name": "Prepare Verification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 460],
+      "notes": "T093: Prepare QA Verification call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.QA_VERIFICATION_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_qa_verification",
+      "name": "QA Verification",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 460],
+      "notes": "T093: Call QA Verification workflow (placeholder)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T094: Prepare for Reviewer call (placeholder)\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    verification_status: 'passed',\n    phase: 'review'\n  }\n}];"
+      },
+      "id": "code_prepare_review",
+      "name": "Prepare Review",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 580],
+      "notes": "T094: Prepare Reviewer call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.REVIEWER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_reviewer",
+      "name": "Reviewer",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 580],
+      "notes": "T094: Call Reviewer workflow (placeholder)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T095: Prepare for Dev Release call\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_prepare_release",
+      "name": "Prepare Release",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 700],
+      "notes": "T095: Prepare Dev Release call"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.DEV_RELEASE_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_dev_release",
+      "name": "Dev Release",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 700],
+      "notes": "T095: Call Dev Release workflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T096: Notify phase completion\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    event_type: 'phase_completed',\n    task_id: data.task_id,\n    severity: 'info',\n    title: `Task ${data.task_id} Phase Complete`,\n    message: `Phase ${data.phase || 'unknown'} completed successfully`,\n    phase: data.phase\n  }\n}];"
+      },
+      "id": "code_notify_phase_complete",
+      "name": "Notify Phase Complete",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300],
+      "notes": "T096: Phase completion notification"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_notification_phase",
+      "name": "Send Phase Notification",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2440, 300],
+      "notes": "T096: Send phase completion notification"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Task already completed\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    status: 'already_completed',\n    message: 'Task is already in completed state'\n  }\n}];"
+      },
+      "id": "code_already_completed",
+      "name": "Already Completed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 820]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Human intervention required\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    event_type: 'needs_human',\n    task_id: data.task_id,\n    severity: 'warning',\n    title: `Task ${data.task_id} Needs Human`,\n    message: 'Task is escalated or blocked, human intervention required',\n    phase: data.phase,\n    status: data.status\n  }\n}];"
+      },
+      "id": "code_human_required",
+      "name": "Human Required",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 940]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_notification_human",
+      "name": "Notify Human Required",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 940]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return final result\nconst data = $input.first().json;\nconst phaseData = $('Determine Phase').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: phaseData.task_id,\n    phase: data.phase || phaseData.phase,\n    status: data.status || 'processed',\n    next_phase: data.next_phase || null\n  }\n}];"
+      },
+      "id": "code_return_result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 300],
+      "notes": "Return orchestration result"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 1100],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    error: error.message || 'Unknown error in Master Orchestrator'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 1100]
+    }
+  ],
+  "connections": {
+    "Resume Webhook": {
+      "main": [
+        [{ "node": "Prepare Load Task", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Load Task": {
+      "main": [
+        [{ "node": "Load Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Load Task Envelope": {
+      "main": [
+        [{ "node": "Determine Phase", "type": "main", "index": 0 }]
+      ]
+    },
+    "Determine Phase": {
+      "main": [
+        [{ "node": "Route by Phase", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Phase": {
+      "main": [
+        [{ "node": "Prepare Intake", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Planning", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Implementation", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Verification", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Review", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Release", "type": "main", "index": 0 }],
+        [{ "node": "Already Completed", "type": "main", "index": 0 }],
+        [{ "node": "Human Required", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Intake": {
+      "main": [
+        [{ "node": "PM Intake", "type": "main", "index": 0 }]
+      ]
+    },
+    "PM Intake": {
+      "main": [
+        [{ "node": "Needs Clarification?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Needs Clarification?": {
+      "main": [
+        [{ "node": "Human Required", "type": "main", "index": 0 }],
+        [{ "node": "Notify Phase Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Planning": {
+      "main": [
+        [{ "node": "PM Planning", "type": "main", "index": 0 }]
+      ]
+    },
+    "PM Planning": {
+      "main": [
+        [{ "node": "Prepare Tasks", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Tasks": {
+      "main": [
+        [{ "node": "PM Tasks", "type": "main", "index": 0 }]
+      ]
+    },
+    "PM Tasks": {
+      "main": [
+        [{ "node": "Notify Phase Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Implementation": {
+      "main": [
+        [{ "node": "Dev Implementation", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dev Implementation": {
+      "main": [
+        [{ "node": "Notify Phase Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Verification": {
+      "main": [
+        [{ "node": "QA Verification", "type": "main", "index": 0 }]
+      ]
+    },
+    "QA Verification": {
+      "main": [
+        [{ "node": "Notify Phase Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Review": {
+      "main": [
+        [{ "node": "Reviewer", "type": "main", "index": 0 }]
+      ]
+    },
+    "Reviewer": {
+      "main": [
+        [{ "node": "Notify Phase Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Release": {
+      "main": [
+        [{ "node": "Dev Release", "type": "main", "index": 0 }]
+      ]
+    },
+    "Dev Release": {
+      "main": [
+        [{ "node": "Notify Phase Complete", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Phase Complete": {
+      "main": [
+        [{ "node": "Send Phase Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Phase Notification": {
+      "main": [
+        [{ "node": "Return Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Already Completed": {
+      "main": [
+        [{ "node": "Return Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Human Required": {
+      "main": [
+        [{ "node": "Notify Human Required", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Human Required": {
+      "main": [
+        [{ "node": "Return Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-5" },
+    { "name": "orchestration" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "master-orchestrator",
+    "instanceId": "autonomous-dev-team"
+  }
+}

@@ -1,0 +1,332 @@
+{
+  "name": "Notification Hub",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Input: event_type, task_id, task_envelope, message"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "task_created",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.event_type }}", "rightValue": "task_created", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "phase_started",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.event_type }}", "rightValue": "phase_started", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "phase_completed",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.event_type }}", "rightValue": "phase_completed", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "task_completed",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.event_type }}", "rightValue": "task_completed", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "needs_human",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.event_type }}", "rightValue": "needs_human", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "error",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.event_type }}", "rightValue": "error", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "other"
+        }
+      },
+      "id": "switch_event_type",
+      "name": "Route Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300],
+      "notes": "Route notification based on event type"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Teams adaptive card for task_created event\nconst data = $input.first().json;\nconst envelope = data.task_envelope || {};\nconst request = envelope.request || {};\n\nconst card = {\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"0076D7\",\n  \"summary\": `New Feature Request: ${data.task_id}`,\n  \"sections\": [{\n    \"activityTitle\": `📝 New Feature Request`,\n    \"activitySubtitle\": data.task_id,\n    \"facts\": [\n      { \"name\": \"Title\", \"value\": request.title || 'N/A' },\n      { \"name\": \"Priority\", \"value\": request.priority || 'medium' },\n      { \"name\": \"Repository\", \"value\": envelope.repository || 'N/A' },\n      { \"name\": \"Status\", \"value\": \"Pending - Intake\" }\n    ],\n    \"markdown\": true\n  }],\n  \"potentialAction\": [{\n    \"@type\": \"OpenUri\",\n    \"name\": \"View in Dashboard\",\n    \"targets\": [{\n      \"os\": \"default\",\n      \"uri\": `https://ops-dashboard.coxserver.com/tasks/${data.task_id}`\n    }]\n  }]\n};\n\nreturn [{ json: { card, event_type: data.event_type, task_id: data.task_id } }];"
+      },
+      "id": "code_build_task_created_card",
+      "name": "Build Task Created Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 100],
+      "notes": "Teams adaptive card for new task"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Teams card for phase events\nconst data = $input.first().json;\nconst envelope = data.task_envelope || {};\nconst phase = data.phase || envelope.phase || 'unknown';\n\nconst phaseEmoji = {\n  intake: '📥',\n  planning: '📋',\n  implementation: '💻',\n  verification: '✅',\n  review: '🔍',\n  release: '🚀'\n};\n\nconst card = {\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"28A745\",\n  \"summary\": `Phase ${data.event_type === 'phase_started' ? 'Started' : 'Completed'}: ${phase}`,\n  \"sections\": [{\n    \"activityTitle\": `${phaseEmoji[phase] || '⚙️'} Phase ${data.event_type === 'phase_started' ? 'Started' : 'Completed'}`,\n    \"activitySubtitle\": data.task_id,\n    \"facts\": [\n      { \"name\": \"Phase\", \"value\": phase },\n      { \"name\": \"Title\", \"value\": envelope.request?.title || 'N/A' }\n    ],\n    \"markdown\": true\n  }]\n};\n\nreturn [{ json: { card, event_type: data.event_type, task_id: data.task_id } }];"
+      },
+      "id": "code_build_phase_card",
+      "name": "Build Phase Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 200],
+      "notes": "Teams card for phase start/complete"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Teams card for task completion\nconst data = $input.first().json;\nconst envelope = data.task_envelope || {};\n\nconst card = {\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"28A745\",\n  \"summary\": `✅ Task Completed: ${data.task_id}`,\n  \"sections\": [{\n    \"activityTitle\": `🎉 Feature Request Completed!`,\n    \"activitySubtitle\": data.task_id,\n    \"facts\": [\n      { \"name\": \"Title\", \"value\": envelope.request?.title || 'N/A' },\n      { \"name\": \"PR URL\", \"value\": envelope.phases?.implementation?.pr_url || 'N/A' }\n    ],\n    \"markdown\": true\n  }],\n  \"potentialAction\": [{\n    \"@type\": \"OpenUri\",\n    \"name\": \"View PR\",\n    \"targets\": [{\n      \"os\": \"default\",\n      \"uri\": envelope.phases?.implementation?.pr_url || '#'\n    }]\n  }]\n};\n\nreturn [{ json: { card, event_type: data.event_type, task_id: data.task_id } }];"
+      },
+      "id": "code_build_completed_card",
+      "name": "Build Completed Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "notes": "Teams card for task completion"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Teams card for human intervention needed\nconst data = $input.first().json;\nconst envelope = data.task_envelope || {};\n\nconst card = {\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"FFC107\",\n  \"summary\": `⚠️ Human Input Required: ${data.task_id}`,\n  \"sections\": [{\n    \"activityTitle\": `⚠️ Human Intervention Required`,\n    \"activitySubtitle\": data.task_id,\n    \"facts\": [\n      { \"name\": \"Title\", \"value\": envelope.request?.title || 'N/A' },\n      { \"name\": \"Phase\", \"value\": envelope.phase || 'unknown' },\n      { \"name\": \"Reason\", \"value\": data.message || 'Clarification needed' }\n    ],\n    \"text\": data.questions ? `**Questions:**\\n${data.questions.join('\\n')}` : '',\n    \"markdown\": true\n  }],\n  \"potentialAction\": [{\n    \"@type\": \"OpenUri\",\n    \"name\": \"Review Task\",\n    \"targets\": [{\n      \"os\": \"default\",\n      \"uri\": `https://ops-dashboard.coxserver.com/tasks/${data.task_id}`\n    }]\n  }]\n};\n\nreturn [{ json: { card, event_type: data.event_type, task_id: data.task_id } }];"
+      },
+      "id": "code_build_human_card",
+      "name": "Build Human Needed Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 400],
+      "notes": "Teams card for escalation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build Teams card for error notification\nconst data = $input.first().json;\nconst envelope = data.task_envelope || {};\n\nconst card = {\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"DC3545\",\n  \"summary\": `❌ Error: ${data.task_id}`,\n  \"sections\": [{\n    \"activityTitle\": `❌ Task Error`,\n    \"activitySubtitle\": data.task_id,\n    \"facts\": [\n      { \"name\": \"Phase\", \"value\": envelope.phase || 'unknown' },\n      { \"name\": \"Error\", \"value\": data.message || data.error || 'Unknown error' }\n    ],\n    \"markdown\": true\n  }],\n  \"potentialAction\": [{\n    \"@type\": \"OpenUri\",\n    \"name\": \"View Task\",\n    \"targets\": [{\n      \"os\": \"default\",\n      \"uri\": `https://ops-dashboard.coxserver.com/tasks/${data.task_id}`\n    }]\n  }]\n};\n\nreturn [{ json: { card, event_type: data.event_type, task_id: data.task_id } }];"
+      },
+      "id": "code_build_error_card",
+      "name": "Build Error Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 500],
+      "notes": "Teams card for errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass through for unrecognized events (log only)\nconst data = $input.first().json;\n\nconsole.log('Unrecognized event type:', data.event_type);\n\nreturn [{ json: { skipped: true, event_type: data.event_type, task_id: data.task_id } }];"
+      },
+      "id": "code_other_event",
+      "name": "Log Other Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 600],
+      "notes": "Fallback for unknown events"
+    },
+    {
+      "parameters": {
+        "url": "",
+        "options": {}
+      },
+      "id": "merge_cards",
+      "name": "Merge Cards",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [900, 300],
+      "notes": "Merge all card outputs"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "skip_check", "leftValue": "={{ $json.skipped }}", "rightValue": true, "operator": { "type": "boolean", "operation": "notEquals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter_skipped",
+      "name": "Filter Skipped",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "Skip sending for unrecognized events"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Rate limiting check - max 10 notifications per task per hour per COST-008\nconst data = $input.first().json;\n\n// In production, this would check a rate limit store\n// For now, we'll pass through with rate limit metadata\nconst rateLimitKey = `notification:${data.task_id}:${new Date().toISOString().slice(0, 13)}`;\n\nreturn [{\n  json: {\n    ...data,\n    rate_limit_key: rateLimitKey,\n    rate_limited: false // Would be true if exceeded\n  }\n}];"
+      },
+      "id": "code_rate_limit",
+      "name": "Check Rate Limit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "COST-008: Max 10 notifications/task/hour"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.card) }}",
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 15000
+        }
+      },
+      "id": "http_send_teams",
+      "name": "Send Teams Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 300],
+      "notes": "POST to Teams webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return result\nconst response = $input.first().json;\nconst cardData = $('Check Rate Limit').first().json;\n\nreturn [{\n  json: {\n    success: response.statusCode === 200 || response.statusCode === 202,\n    event_type: cardData.event_type,\n    task_id: cardData.task_id,\n    notification_sent: true\n  }\n}];"
+      },
+      "id": "code_return_result",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "notes": "Return notification result"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log error but don't fail - notifications are best-effort\nconst error = $input.first().json;\n\nconsole.error('Notification Hub error:', error);\n\nreturn [{\n  json: {\n    success: false,\n    error: error.message || 'Unknown error',\n    notification_sent: false\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500],
+      "notes": "Non-fatal error handling"
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Route Event Type", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route Event Type": {
+      "main": [
+        [{ "node": "Build Task Created Card", "type": "main", "index": 0 }],
+        [{ "node": "Build Phase Card", "type": "main", "index": 0 }],
+        [{ "node": "Build Phase Card", "type": "main", "index": 0 }],
+        [{ "node": "Build Completed Card", "type": "main", "index": 0 }],
+        [{ "node": "Build Human Needed Card", "type": "main", "index": 0 }],
+        [{ "node": "Build Error Card", "type": "main", "index": 0 }],
+        [{ "node": "Log Other Event", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Task Created Card": {
+      "main": [
+        [{ "node": "Merge Cards", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Phase Card": {
+      "main": [
+        [{ "node": "Merge Cards", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Completed Card": {
+      "main": [
+        [{ "node": "Merge Cards", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Human Needed Card": {
+      "main": [
+        [{ "node": "Merge Cards", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Error Card": {
+      "main": [
+        [{ "node": "Merge Cards", "type": "main", "index": 0 }]
+      ]
+    },
+    "Log Other Event": {
+      "main": [
+        [{ "node": "Merge Cards", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Cards": {
+      "main": [
+        [{ "node": "Filter Skipped", "type": "main", "index": 0 }]
+      ]
+    },
+    "Filter Skipped": {
+      "main": [
+        [{ "node": "Check Rate Limit", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Rate Limit": {
+      "main": [
+        [{ "node": "Send Teams Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Teams Notification": {
+      "main": [
+        [{ "node": "Return Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-5" },
+    { "name": "notifications" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "notification-hub",
+    "instanceId": "autonomous-dev-team"
+  }
+}

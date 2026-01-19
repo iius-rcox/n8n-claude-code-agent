@@ -1,0 +1,312 @@
+{
+  "name": "Human Checkpoint",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T135: Input: task_id, reason, questions array"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T138: Prepare to update task envelope status to escalated\nconst data = $input.first().json;\n\nif (!data.task_id || !data.reason) {\n  throw new Error('Missing required fields: task_id and reason');\n}\n\nreturn [{\n  json: {\n    operation: 'update',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    updates: {\n      status: 'escalated',\n      escalation: {\n        reason: data.reason,\n        questions: data.questions || [],\n        escalated_at: new Date().toISOString(),\n        escalated_by: data.escalated_by || 'system'\n      }\n    },\n    task_id: data.task_id,\n    reason: data.reason,\n    questions: data.questions || [],\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_prepare_update",
+      "name": "Prepare Envelope Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T138: Prepare status update to escalated"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update",
+      "name": "Update Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T138: Update task envelope via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T136: Build Teams Adaptive Card with approval/reject buttons\nconst updateResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nconst taskId = inputData.task_id;\nconst reason = inputData.reason;\nconst questions = inputData.questions || [];\nconst prUrl = inputData.pr_url;\n\n// Build questions section if any\nlet questionsSection = '';\nif (questions.length > 0) {\n  questionsSection = `\\n\\n**Questions requiring clarification:**\\n${questions.map((q, i) => `${i + 1}. ${q}`).join('\\n')}`;\n}\n\n// Build Adaptive Card JSON per research.md\nconst adaptiveCard = {\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"FFB900\",\n  \"summary\": `Task ${taskId} Needs Attention`,\n  \"sections\": [\n    {\n      \"activityTitle\": `🔔 Human Checkpoint Required: ${taskId}`,\n      \"activitySubtitle\": new Date().toISOString(),\n      \"facts\": [\n        { \"name\": \"Task ID\", \"value\": taskId },\n        { \"name\": \"Reason\", \"value\": reason },\n        { \"name\": \"PR\", \"value\": prUrl || \"N/A\" }\n      ],\n      \"markdown\": true,\n      \"text\": `The autonomous dev team requires human input to proceed.${questionsSection}`\n    }\n  ],\n  \"potentialAction\": [\n    {\n      \"@type\": \"HttpPOST\",\n      \"name\": \"✅ Approve & Resume\",\n      \"target\": `{{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/human-checkpoint/approve`,\n      \"body\": JSON.stringify({ task_id: taskId, action: 'approve' })\n    },\n    {\n      \"@type\": \"HttpPOST\",\n      \"name\": \"❌ Reject & Cancel\",\n      \"target\": `{{ $env.N8N_WEBHOOK_BASE_URL }}/webhook/human-checkpoint/reject`,\n      \"body\": JSON.stringify({ task_id: taskId, action: 'reject' })\n    },\n    {\n      \"@type\": \"OpenUri\",\n      \"name\": \"View Task\",\n      \"targets\": [\n        { \"os\": \"default\", \"uri\": `{{ $env.OPS_DASHBOARD_URL }}/tasks/${taskId}` }\n      ]\n    }\n  ]\n};\n\nreturn [{\n  json: {\n    task_id: taskId,\n    reason: reason,\n    questions: questions,\n    pr_url: prUrl,\n    adaptive_card: adaptiveCard,\n    card_json: JSON.stringify(adaptiveCard)\n  }\n}];"
+      },
+      "id": "code_build_card",
+      "name": "Build Adaptive Card",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T136: Build Teams Adaptive Card with buttons"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ $json.card_json }}",
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 30000
+        }
+      },
+      "id": "http_send_teams",
+      "name": "Send to Teams",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 300],
+      "notes": "T137: Send Adaptive Card to Teams webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verify Teams notification was sent\nconst response = $input.first().json;\nconst cardData = $('Build Adaptive Card').first().json;\n\nconst sent = response.statusCode === 200 || response.statusCode === 202;\n\nreturn [{\n  json: {\n    success: sent,\n    task_id: cardData.task_id,\n    reason: cardData.reason,\n    notification_sent: sent,\n    teams_response: response.statusCode\n  }\n}];"
+      },
+      "id": "code_verify_sent",
+      "name": "Verify Notification Sent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "human-checkpoint/approve",
+        "options": {}
+      },
+      "id": "webhook_approve",
+      "name": "Approve Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 500],
+      "webhookId": "human-checkpoint-approve",
+      "notes": "T140: Callback webhook for approve button"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T141: Handle approve action\nconst data = $input.first().json;\n\nif (!data.task_id) {\n  throw new Error('Missing task_id in approve request');\n}\n\nreturn [{\n  json: {\n    operation: 'update',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    updates: {\n      status: 'in_progress',\n      escalation: {\n        resolved_at: new Date().toISOString(),\n        resolution: 'approved',\n        resolved_by: data.user || 'human'\n      }\n    },\n    task_id: data.task_id,\n    action: 'approve'\n  }\n}];"
+      },
+      "id": "code_handle_approve",
+      "name": "Handle Approve",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500],
+      "notes": "T141: Prepare approval update"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_approve",
+      "name": "Update Approved",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 500],
+      "notes": "T141: Save approval to blob"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T141: Prepare to trigger Master Orchestrator resume\nconst data = $('Handle Approve').first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    resume_source: 'human_approval'\n  }\n}];"
+      },
+      "id": "code_prepare_resume",
+      "name": "Prepare Resume",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 500],
+      "notes": "T141: Prepare orchestrator resume"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.MASTER_ORCHESTRATOR_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_orchestrator_resume",
+      "name": "Resume Orchestrator",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1120, 500],
+      "notes": "T141: Resume task processing"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, action: 'approved', task_id: $('Handle Approve').first().json.task_id, message: 'Task approved and resumed' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "response_approve",
+      "name": "Approve Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1340, 500]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "human-checkpoint/reject",
+        "options": {}
+      },
+      "id": "webhook_reject",
+      "name": "Reject Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 700],
+      "webhookId": "human-checkpoint-reject",
+      "notes": "T140: Callback webhook for reject button"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T142: Handle reject action\nconst data = $input.first().json;\n\nif (!data.task_id) {\n  throw new Error('Missing task_id in reject request');\n}\n\nreturn [{\n  json: {\n    operation: 'update',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    updates: {\n      status: 'cancelled',\n      completed_at: new Date().toISOString(),\n      escalation: {\n        resolved_at: new Date().toISOString(),\n        resolution: 'rejected',\n        resolved_by: data.user || 'human',\n        rejection_reason: data.reason || 'Rejected by human'\n      }\n    },\n    task_id: data.task_id,\n    action: 'reject'\n  }\n}];"
+      },
+      "id": "code_handle_reject",
+      "name": "Handle Reject",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 700],
+      "notes": "T142: Prepare rejection update"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_reject",
+      "name": "Update Rejected",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 700],
+      "notes": "T142: Save rejection to blob"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, action: 'rejected', task_id: $('Handle Reject').first().json.task_id, message: 'Task cancelled' }) }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "response_reject",
+      "name": "Reject Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [900, 700]
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 900],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    error: error.message || 'Unknown error in Human Checkpoint workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 900]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Envelope Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Update": {
+      "main": [
+        [{ "node": "Update Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Task Envelope": {
+      "main": [
+        [{ "node": "Build Adaptive Card", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Adaptive Card": {
+      "main": [
+        [{ "node": "Send to Teams", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send to Teams": {
+      "main": [
+        [{ "node": "Verify Notification Sent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Approve Webhook": {
+      "main": [
+        [{ "node": "Handle Approve", "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Approve": {
+      "main": [
+        [{ "node": "Update Approved", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Approved": {
+      "main": [
+        [{ "node": "Prepare Resume", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Resume": {
+      "main": [
+        [{ "node": "Resume Orchestrator", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resume Orchestrator": {
+      "main": [
+        [{ "node": "Approve Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Reject Webhook": {
+      "main": [
+        [{ "node": "Handle Reject", "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Reject": {
+      "main": [
+        [{ "node": "Update Rejected", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Rejected": {
+      "main": [
+        [{ "node": "Reject Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-5" },
+    { "name": "human-checkpoint" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "human-checkpoint",
+    "instanceId": "autonomous-dev-team"
+  }
+}

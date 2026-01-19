@@ -1,0 +1,304 @@
+{
+  "name": "Feedback Router",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T123: Input: task_id, feedback_source (qa/reviewer), feedback"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T124: Prepare to read task envelope for retry count\nconst data = $input.first().json;\n\nif (!data.task_id || !data.feedback_source || !data.feedback) {\n  throw new Error('Missing required fields: task_id, feedback_source, and feedback');\n}\n\nreturn [{\n  json: {\n    operation: 'read',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    task_id: data.task_id,\n    feedback_source: data.feedback_source,\n    feedback: data.feedback,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_prepare_read",
+      "name": "Prepare Envelope Read",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T124: Prepare read request for task envelope"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_read",
+      "name": "Read Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T124: Read task envelope via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T124-T125: Extract retry count and check max retries\nconst readResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nif (!readResult.success) {\n  throw new Error(`Failed to read task envelope: ${readResult.error || 'Unknown error'}`);\n}\n\nconst content = readResult.content || '';\nconst feedbackSource = inputData.feedback_source;\n\n// Parse feedback_loops from YAML\n// T125: Max retries per data-model.md: 3 for QA (verification), 2 for Review\nconst maxRetries = feedbackSource === 'qa' ? 3 : 2;\n\n// Extract current cycle count for the feedback source\nlet currentCycle = 0;\nconst cyclePattern = new RegExp(`${feedbackSource}:[\\\\s\\\\S]*?cycle_count:\\\\s*(\\\\d+)`);\nconst cycleMatch = content.match(cyclePattern);\nif (cycleMatch) {\n  currentCycle = parseInt(cycleMatch[1]);\n}\n\n// Extract current task number\nconst taskNumMatch = content.match(/current_task:\\s*(\\d+)/);\nconst currentTask = taskNumMatch ? parseInt(taskNumMatch[1]) : 1;\n\nconst retriesExceeded = currentCycle >= maxRetries;\nconst nextCycle = currentCycle + 1;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    feedback_source: feedbackSource,\n    feedback: inputData.feedback,\n    pr_url: inputData.pr_url,\n    current_cycle: currentCycle,\n    next_cycle: nextCycle,\n    max_retries: maxRetries,\n    retries_exceeded: retriesExceeded,\n    current_task: currentTask,\n    envelope_content: content\n  }\n}];"
+      },
+      "id": "code_check_retries",
+      "name": "Check Retry Count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T124-T125: Extract retry count and check max retries"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $json.retries_exceeded }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_retries_exceeded",
+      "name": "Retries Exceeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "T125: Route based on retry limit"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T127: Prepare envelope update to increment cycle count\nconst data = $input.first().json;\n\n// Build updated feedback_loops section\nconst historyEntry = {\n  cycle: data.next_cycle,\n  timestamp: new Date().toISOString(),\n  feedback: data.feedback.substring(0, 500), // Truncate for storage\n  source: data.feedback_source\n};\n\nreturn [{\n  json: {\n    operation: 'update',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    updates: {\n      [`feedback_loops.${data.feedback_source}.cycle_count`]: data.next_cycle,\n      phase: 'implementation', // Return to implementation phase\n      status: 'in_progress'\n    },\n    task_id: data.task_id,\n    feedback_source: data.feedback_source,\n    feedback: data.feedback,\n    pr_url: data.pr_url,\n    current_task: data.current_task,\n    next_cycle: data.next_cycle,\n    history_entry: historyEntry\n  }\n}];"
+      },
+      "id": "code_prepare_update",
+      "name": "Prepare Envelope Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "T127: Prepare to increment cycle_count"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update",
+      "name": "Update Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 200],
+      "notes": "T127: Update envelope with incremented cycle count"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T126: Build feedback context prompt for Dev Agent\nconst data = $('Prepare Envelope Update').first().json;\n\nconst feedbackContext = `\n## Previous Attempt Feedback (Cycle ${data.next_cycle})\n\nSource: ${data.feedback_source === 'qa' ? 'QA Verification' : 'Code Review'}\n\n### Issues to Address:\n${data.feedback}\n\n### Instructions:\n1. Address each issue listed above\n2. Re-run tests to verify fixes\n3. Update the PR with your changes\n4. Do not introduce new issues while fixing these\n`;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task,\n    feedback_context: feedbackContext,\n    retry_cycle: data.next_cycle,\n    feedback_source: data.feedback_source\n  }\n}];"
+      },
+      "id": "code_build_context",
+      "name": "Build Feedback Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 200],
+      "notes": "T126: Build feedback context for Dev Agent"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.DEV_IMPLEMENTATION_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_dev_implementation",
+      "name": "Call Dev Implementation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2000, 200],
+      "notes": "T128: Call Dev Implementation with feedback context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return retry result\nconst data = $('Build Feedback Context').first().json;\nconst implResult = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    action: 'retry',\n    retry_cycle: data.retry_cycle,\n    feedback_source: data.feedback_source,\n    dev_result: implResult\n  }\n}];"
+      },
+      "id": "code_return_retry",
+      "name": "Return Retry Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 200],
+      "notes": "Return result after retry"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T129: Prepare escalation to Human Checkpoint\nconst data = $input.first().json;\n\nconst escalationReason = data.feedback_source === 'qa' \n  ? `QA Verification failed ${data.max_retries} times. Manual review required.`\n  : `Code Review failed ${data.max_retries} times. Manual review required.`;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    reason: escalationReason,\n    feedback_source: data.feedback_source,\n    feedback: data.feedback,\n    current_cycle: data.current_cycle,\n    max_retries: data.max_retries,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_prepare_escalation",
+      "name": "Prepare Escalation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400],
+      "notes": "T129: Prepare Human Checkpoint escalation"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare notification for escalation\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    event_type: 'needs_human',\n    task_id: data.task_id,\n    severity: 'warning',\n    title: `Task ${data.task_id} Max Retries Exceeded`,\n    message: data.reason,\n    pr_url: data.pr_url,\n    feedback_source: data.feedback_source,\n    retry_count: data.current_cycle\n  }\n}];"
+      },
+      "id": "code_prepare_notification",
+      "name": "Prepare Escalation Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 400]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_notification_hub",
+      "name": "Notify Escalation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1780, 400],
+      "notes": "T129: Send escalation notification"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T130: Update envelope to mark as escalated\nconst data = $('Prepare Escalation').first().json;\n\nreturn [{\n  json: {\n    operation: 'update',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    updates: {\n      status: 'escalated',\n      escalation: {\n        reason: data.reason,\n        escalated_at: new Date().toISOString(),\n        source: data.feedback_source,\n        retry_count: data.current_cycle\n      }\n    },\n    task_id: data.task_id\n  }\n}];"
+      },
+      "id": "code_prepare_escalation_update",
+      "name": "Prepare Escalation Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 400],
+      "notes": "T130: Record escalation in task envelope"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_escalation_update",
+      "name": "Update Envelope Escalated",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2220, 400],
+      "notes": "T130: Save escalation to blob"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return escalation result\nconst data = $('Prepare Escalation').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    action: 'escalated',\n    reason: data.reason,\n    feedback_source: data.feedback_source,\n    retry_count: data.current_cycle,\n    max_retries: data.max_retries\n  }\n}];"
+      },
+      "id": "code_return_escalated",
+      "name": "Return Escalated",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 400],
+      "notes": "Return escalation result"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 560],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    action: 'error',\n    error: error.message || 'Unknown error in Feedback Router workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 560]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Envelope Read", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Read": {
+      "main": [
+        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Task Envelope": {
+      "main": [
+        [{ "node": "Check Retry Count", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Retry Count": {
+      "main": [
+        [{ "node": "Retries Exceeded?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Retries Exceeded?": {
+      "main": [
+        [{ "node": "Prepare Escalation", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Envelope Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Update": {
+      "main": [
+        [{ "node": "Update Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Task Envelope": {
+      "main": [
+        [{ "node": "Build Feedback Context", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Feedback Context": {
+      "main": [
+        [{ "node": "Call Dev Implementation", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Dev Implementation": {
+      "main": [
+        [{ "node": "Return Retry Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Escalation": {
+      "main": [
+        [{ "node": "Prepare Escalation Notification", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Escalation Notification": {
+      "main": [
+        [{ "node": "Notify Escalation", "type": "main", "index": 0 }]
+      ]
+    },
+    "Notify Escalation": {
+      "main": [
+        [{ "node": "Prepare Escalation Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Escalation Update": {
+      "main": [
+        [{ "node": "Update Envelope Escalated", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Envelope Escalated": {
+      "main": [
+        [{ "node": "Return Escalated", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-4" },
+    { "name": "feedback-loop" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "feedback-router",
+    "instanceId": "autonomous-dev-team"
+  }
+}

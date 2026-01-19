@@ -220,6 +220,22 @@ export class BlobStorageService {
   }
 
   /**
+   * Upload or update blob content
+   */
+  async uploadBlob(
+    containerName: string,
+    blobPath: string,
+    content: string,
+    contentType: string = 'text/plain'
+  ): Promise<void> {
+    const containerClient = this.blobServiceClient.getContainerClient(containerName);
+    const blockBlobClient = containerClient.getBlockBlobClient(blobPath);
+    await blockBlobClient.upload(content, content.length, {
+      blobHTTPHeaders: { blobContentType: contentType },
+    });
+  }
+
+  /**
    * Check storage health by attempting to list containers
    */
   async checkHealth(): Promise<{ healthy: boolean; containers: string[]; error?: string }> {

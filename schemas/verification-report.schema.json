@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ii-us.github.io/schemas/verification-report/v1.0.0",
+  "title": "VerificationReport",
+  "description": "QA Agent output for verifying implementation against specification",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "task_id",
+    "pr_url",
+    "verified_at",
+    "test_results",
+    "criteria_status",
+    "recommendation"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.0.0",
+      "description": "Schema version for migration support"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^FEAT-\\d{8}-[a-z0-9]{6}$",
+      "description": "Associated task identifier"
+    },
+    "pr_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the PR being verified"
+    },
+    "verified_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp when verification was completed"
+    },
+    "cycle": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Which verification cycle this is (1-3)"
+    },
+    "test_results": {
+      "type": "object",
+      "required": ["passed", "failed", "skipped"],
+      "properties": {
+        "passed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tests that passed"
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tests that failed"
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of tests that were skipped"
+        },
+        "coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Code coverage percentage"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total test execution time in milliseconds"
+        },
+        "flaky_tests": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Test names that showed flaky behavior"
+        }
+      }
+    },
+    "criteria_status": {
+      "type": "array",
+      "description": "Status of each acceptance criterion",
+      "items": {
+        "type": "object",
+        "required": ["criterion", "status"],
+        "properties": {
+          "criterion": {
+            "type": "string",
+            "description": "The acceptance criterion being verified"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "partial", "not_testable"],
+            "description": "Verification status"
+          },
+          "evidence": {
+            "type": "string",
+            "description": "How the criterion was verified"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Additional context or observations"
+          }
+        }
+      }
+    },
+    "issues_found": {
+      "type": "array",
+      "default": [],
+      "description": "List of issues discovered during verification",
+      "items": {
+        "type": "object",
+        "required": ["id", "severity", "description"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^V\\d{3}$",
+            "description": "Issue identifier (e.g., V001)"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor"],
+            "description": "Issue severity level"
+          },
+          "description": {
+            "type": "string",
+            "description": "Clear description of the issue"
+          },
+          "location": {
+            "type": "string",
+            "description": "File path and line number or test name"
+          },
+          "reproduction": {
+            "type": "string",
+            "description": "Steps to reproduce if applicable"
+          },
+          "suggested_fix": {
+            "type": "string",
+            "description": "Optional suggestion for resolution"
+          }
+        }
+      }
+    },
+    "recommendation": {
+      "type": "string",
+      "enum": ["approve", "request_changes"],
+      "description": "Final recommendation for this verification cycle"
+    },
+    "feedback_for_dev": {
+      "type": "string",
+      "description": "Summary feedback for Dev Agent if changes needed"
+    },
+    "security_notes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Security observations (not full review, just verification)"
+    }
+  }
+}

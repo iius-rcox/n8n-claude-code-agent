@@ -1,0 +1,416 @@
+{
+  "name": "GitHub Token Manager",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T063: Input: (none) - returns valid GitHub token"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://169.254.169.254/metadata/identity/oauth2/token",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "api-version", "value": "2019-08-01" },
+            { "name": "resource", "value": "https://vault.azure.net" }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Metadata", "value": "true" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_get_azure_token",
+      "name": "Get Azure Token for Key Vault",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [460, 300],
+      "notes": "Azure token via Workload Identity for Key Vault access"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse Azure token for Key Vault access\nconst tokenResponse = $input.first().json;\n\nif (!tokenResponse.body || !tokenResponse.body.access_token) {\n  throw new Error('Failed to get Azure token for Key Vault: ' + JSON.stringify(tokenResponse));\n}\n\nreturn [{\n  json: {\n    azure_token: tokenResponse.body.access_token\n  }\n}];"
+      },
+      "id": "code_parse_azure_token",
+      "name": "Parse Azure Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_check_cache",
+      "name": "Check Token Cache",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [900, 300],
+      "notes": "T067: Check for cached token"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare cache check request\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-state',\n    blob_path: 'github-token-cache.yml',\n    azure_token: data.azure_token\n  }\n}];"
+      },
+      "id": "code_prepare_cache_check",
+      "name": "Prepare Cache Check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// T068: Check if cached token is valid (>5 minutes remaining)\nconst cacheResult = $input.first().json;\nconst azureToken = $('Parse Azure Token').first().json.azure_token;\n\nlet cachedToken = null;\nlet needsRefresh = true;\n\nif (cacheResult.success && cacheResult.content) {\n  try {\n    // Parse YAML/JSON content\n    let cache;\n    if (cacheResult.content.includes(':')) {\n      // Simple YAML parsing for token and expires_at\n      const tokenMatch = cacheResult.content.match(/token:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n      const expiresMatch = cacheResult.content.match(/expires_at:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n      \n      if (tokenMatch && expiresMatch) {\n        cache = {\n          token: tokenMatch[1],\n          expires_at: expiresMatch[1]\n        };\n      }\n    } else {\n      cache = JSON.parse(cacheResult.content);\n    }\n    \n    if (cache && cache.token && cache.expires_at) {\n      const expiresAt = new Date(cache.expires_at);\n      const now = new Date();\n      const fiveMinutes = 5 * 60 * 1000;\n      \n      // If more than 5 minutes remaining, use cached token\n      if (expiresAt.getTime() - now.getTime() > fiveMinutes) {\n        cachedToken = cache.token;\n        needsRefresh = false;\n      }\n    }\n  } catch (e) {\n    // Cache parse error - will refresh\n    console.log('Cache parse error:', e.message);\n  }\n}\n\nreturn [{\n  json: {\n    cached_token: cachedToken,\n    needs_refresh: needsRefresh,\n    azure_token: azureToken\n  }\n}];"
+      },
+      "id": "code_check_cache_validity",
+      "name": "Check Cache Validity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "T068: Refresh if <5 min remaining"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "use_cached",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.needs_refresh }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "mint_new",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.needs_refresh }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch_cache",
+      "name": "Route Cache Decision",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1340, 300],
+      "notes": "Use cached or mint new token"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return cached token directly\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    token: data.cached_token,\n    source: 'cache'\n  }\n}];"
+      },
+      "id": "code_return_cached",
+      "name": "Return Cached Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 200],
+      "notes": "Return valid cached token"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AZURE_KEY_VAULT_URL }}/secrets/github-app-id?api-version=7.4",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $json.azure_token }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_get_app_id",
+      "name": "Get App ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 400],
+      "notes": "T064: Fetch GitHub App ID from Key Vault"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AZURE_KEY_VAULT_URL }}/secrets/github-app-private-key?api-version=7.4",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $('Check Cache Validity').first().json.azure_token }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_get_private_key",
+      "name": "Get Private Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 500],
+      "notes": "T064: Fetch GitHub App private key from Key Vault"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.AZURE_KEY_VAULT_URL }}/secrets/github-app-installation-id?api-version=7.4",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $('Check Cache Validity').first().json.azure_token }}" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 10000
+        }
+      },
+      "id": "http_get_installation_id",
+      "name": "Get Installation ID",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1560, 600],
+      "notes": "T064: Fetch GitHub App installation ID from Key Vault"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {},
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_secrets",
+      "name": "Merge Secrets",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [1780, 500],
+      "notes": "Combine all Key Vault secrets"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T065: Create JWT for GitHub App authentication\nconst crypto = require('crypto');\n\n// Get secrets from merged Key Vault responses\nconst items = $input.all();\nlet appId, privateKey, installationId;\n\nfor (const item of items) {\n  const url = item.json.url || '';\n  const value = item.json.body?.value;\n  \n  if (url.includes('app-id')) {\n    appId = value;\n  } else if (url.includes('private-key')) {\n    privateKey = value;\n  } else if (url.includes('installation-id')) {\n    installationId = value;\n  }\n}\n\nif (!appId || !privateKey || !installationId) {\n  throw new Error('Missing GitHub App credentials from Key Vault');\n}\n\n// JWT Header\nconst header = {\n  alg: 'RS256',\n  typ: 'JWT'\n};\n\n// JWT Payload (10 minute expiry, issued 60s ago for clock skew)\nconst now = Math.floor(Date.now() / 1000);\nconst payload = {\n  iat: now - 60,\n  exp: now + (10 * 60),\n  iss: appId\n};\n\n// Base64URL encode\nfunction base64url(data) {\n  return Buffer.from(JSON.stringify(data))\n    .toString('base64')\n    .replace(/=/g, '')\n    .replace(/\\+/g, '-')\n    .replace(/\\//g, '_');\n}\n\n// Create signature\nconst signatureInput = base64url(header) + '.' + base64url(payload);\nconst sign = crypto.createSign('RSA-SHA256');\nsign.update(signatureInput);\nconst signature = sign.sign(privateKey, 'base64')\n  .replace(/=/g, '')\n  .replace(/\\+/g, '-')\n  .replace(/\\//g, '_');\n\nconst jwt = signatureInput + '.' + signature;\n\nreturn [{\n  json: {\n    jwt,\n    installationId,\n    azure_token: $('Check Cache Validity').first().json.azure_token\n  }\n}];"
+      },
+      "id": "code_create_jwt",
+      "name": "Create JWT",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2000, 500],
+      "notes": "T065: Create JWT per research.md pattern"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.github.com/app/installations/{{ $json.installationId }}/access_tokens",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $json.jwt }}" },
+            { "name": "Accept", "value": "application/vnd.github+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": 15000
+        }
+      },
+      "id": "http_exchange_token",
+      "name": "Exchange for Installation Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2220, 500],
+      "notes": "T066: Exchange JWT for installation access token"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse installation token response\nconst response = $input.first().json;\nconst previousData = $('Create JWT').first().json;\n\nif (!response.body || !response.body.token) {\n  throw new Error('Failed to exchange JWT for installation token: ' + JSON.stringify(response));\n}\n\nconst token = response.body.token;\nconst expiresAt = response.body.expires_at;\n\nreturn [{\n  json: {\n    token,\n    expires_at: expiresAt,\n    azure_token: previousData.azure_token\n  }\n}];"
+      },
+      "id": "code_parse_token",
+      "name": "Parse Installation Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2440, 500],
+      "notes": "Extract token from GitHub response"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T067: Prepare token cache update\nconst data = $input.first().json;\nconst now = new Date().toISOString();\n\nconst cacheContent = `token: ${data.token}\\nexpires_at: ${data.expires_at}\\nminted_at: ${now}`;\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-state',\n    blob_path: 'github-token-cache.yml',\n    content: cacheContent,\n    content_type: 'text/yaml',\n    token: data.token,\n    expires_at: data.expires_at\n  }\n}];"
+      },
+      "id": "code_prepare_cache_update",
+      "name": "Prepare Cache Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 500],
+      "notes": "T067: Prepare cache blob for storage"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_update_cache",
+      "name": "Update Token Cache",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2880, 500],
+      "notes": "T067: Store token in cache blob"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return new token\nconst cacheData = $('Prepare Cache Update').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    token: cacheData.token,\n    expires_at: cacheData.expires_at,\n    source: 'minted'\n  }\n}];"
+      },
+      "id": "code_return_new",
+      "name": "Return New Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 500],
+      "notes": "Return newly minted token"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    error: error.message || 'Unknown error in GitHub Token Manager'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Get Azure Token for Key Vault", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Azure Token for Key Vault": {
+      "main": [
+        [{ "node": "Parse Azure Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Azure Token": {
+      "main": [
+        [{ "node": "Prepare Cache Check", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Cache Check": {
+      "main": [
+        [{ "node": "Check Token Cache", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Token Cache": {
+      "main": [
+        [{ "node": "Check Cache Validity", "type": "main", "index": 0 }]
+      ]
+    },
+    "Check Cache Validity": {
+      "main": [
+        [{ "node": "Route Cache Decision", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route Cache Decision": {
+      "main": [
+        [{ "node": "Return Cached Token", "type": "main", "index": 0 }],
+        [
+          { "node": "Get App ID", "type": "main", "index": 0 },
+          { "node": "Get Private Key", "type": "main", "index": 0 },
+          { "node": "Get Installation ID", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get App ID": {
+      "main": [
+        [{ "node": "Merge Secrets", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Private Key": {
+      "main": [
+        [{ "node": "Merge Secrets", "type": "main", "index": 1 }]
+      ]
+    },
+    "Get Installation ID": {
+      "main": [
+        [{ "node": "Merge Secrets", "type": "main", "index": 2 }]
+      ]
+    },
+    "Merge Secrets": {
+      "main": [
+        [{ "node": "Create JWT", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create JWT": {
+      "main": [
+        [{ "node": "Exchange for Installation Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Exchange for Installation Token": {
+      "main": [
+        [{ "node": "Parse Installation Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Installation Token": {
+      "main": [
+        [{ "node": "Prepare Cache Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Cache Update": {
+      "main": [
+        [{ "node": "Update Token Cache", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Token Cache": {
+      "main": [
+        [{ "node": "Return New Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-3" },
+    { "name": "github" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "github-token-manager",
+    "instanceId": "autonomous-dev-team"
+  }
+}

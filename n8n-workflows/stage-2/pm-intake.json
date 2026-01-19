@@ -1,0 +1,283 @@
+{
+  "name": "PM Intake",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T044: Input: task_id, task_envelope"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T045: Build intake prompt using pm-agent.md template with /speckit.specify behavior\nconst data = $input.first().json;\nconst envelope = data.task_envelope;\nconst request = envelope.request || {};\n\n// Build the system prompt with PM Agent intake behavior\nconst systemPrompt = `You are a Senior Technical Project Manager. Your current task is to analyze a feature request and create a structured specification.\n\n## Behavior: /speckit.specify\n\nCreate a specification document with:\n1. Summary (2-3 sentences)\n2. User Stories (As a [role], I want [feature], so that [benefit])\n3. Functional Requirements (numbered list)\n4. Non-Functional Requirements\n5. Acceptance Criteria (testable statements)\n6. Affected Files (best guess)\n7. Risks and Dependencies\n8. Clarifications Needed (questions for human if ambiguous)\n\n## Output Format\n\nYour response MUST start with a YAML front matter block:\n\n\\`\\`\\`yaml\nstatus: ready_for_planning  # or needs_clarification\nclarifications_needed: []   # array of questions if status is needs_clarification\n\\`\\`\\`\n\nFollowed by the specification in Markdown format.\n\n## Critical Decision\n\nSet status: needs_clarification ONLY if there are true ambiguities that would block implementation. Do not ask clarifying questions for things you can reasonably infer.`;\n\n// Build the user prompt with the feature request details\nconst userPrompt = `## Feature Request\n\n**Task ID**: ${data.task_id}\n**Repository**: ${envelope.repository}\n**Priority**: ${request.priority}\n\n**Title**: ${request.title}\n\n**Description**:\n${request.description}\n\n**Acceptance Criteria from User**:\n${request.acceptance_criteria}\n\n---\n\nPlease analyze this feature request and create a structured specification document. Start your response with the YAML status block.`;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    task_envelope: envelope,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'pm'\n  }\n}];"
+      },
+      "id": "code_build_prompt",
+      "name": "Build Intake Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T045: PM Agent intake prompt with /speckit.specify behavior"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.AGENT_RUNNER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_agent_runner",
+      "name": "Call Agent Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T046: Call Agent Runner with agent_role=pm"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T047-T048: Parse spec.md from Claude output and detect needs_clarification\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Intake Prompt').first().json;\n\nif (!agentResponse.success) {\n  throw new Error(`Agent Runner failed: ${agentResponse.error || 'Unknown error'}`);\n}\n\nconst output = agentResponse.output || '';\n\n// Parse YAML front matter for status\nlet status = 'ready_for_planning';\nlet clarifications = [];\n\n// Look for YAML block at the start\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse status\n  const statusMatch = yamlContent.match(/status:\\s*(\\S+)/);\n  if (statusMatch) {\n    status = statusMatch[1].replace(/[\"']/g, '');\n  }\n  \n  // Parse clarifications_needed\n  const clarMatch = yamlContent.match(/clarifications_needed:\\s*\\[([^\\]]*)]/);\n  if (clarMatch && clarMatch[1].trim()) {\n    clarifications = clarMatch[1].split(',').map(s => s.trim().replace(/[\"']/g, '')).filter(Boolean);\n  } else {\n    // Try multiline format\n    const multiMatch = yamlContent.match(/clarifications_needed:\\s*\\n([\\s\\S]*?)(?=\\n\\w|$)/);\n    if (multiMatch) {\n      clarifications = multiMatch[1].split('\\n')\n        .map(s => s.replace(/^\\s*-\\s*[\"']?/, '').replace(/[\"']?\\s*$/, ''))\n        .filter(Boolean);\n    }\n  }\n}\n\n// Extract spec content (everything after YAML block)\nlet specContent = output;\nif (yamlMatch) {\n  specContent = output.replace(/```yaml[\\s\\S]*?```\\n?/, '').trim();\n}\n\n// If status is needs_clarification but no questions, set to ready\nif (status === 'needs_clarification' && clarifications.length === 0) {\n  status = 'ready_for_planning';\n}\n\nconst needsHuman = status === 'needs_clarification';\n\nreturn [{\n  json: {\n    task_id: previousData.task_id,\n    task_envelope: previousData.task_envelope,\n    spec_content: specContent,\n    spec_status: status,\n    needs_human: needsHuman,\n    clarifications: clarifications,\n    raw_output: output\n  }\n}];"
+      },
+      "id": "code_parse_spec",
+      "name": "Parse Spec Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T047-T048: Parse spec.md and detect needs_clarification"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "needs_clarification",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.needs_human }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "ready_for_planning",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.needs_human }}", "rightValue": false, "operator": { "type": "boolean", "operation": "equals" } }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "switch_status",
+      "name": "Route by Status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 300],
+      "notes": "Route based on spec status"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_upload_spec",
+      "name": "Upload spec.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 400],
+      "notes": "T049: Upload spec.md to agent-spec container"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T049: Prepare spec.md upload request for Blob State Manager\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-spec',\n    blob_path: `${data.task_id}/spec.md`,\n    content: data.spec_content,\n    content_type: 'text/markdown'\n  }\n}];"
+      },
+      "id": "code_prepare_upload",
+      "name": "Prepare Spec Upload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 400],
+      "notes": "T049: Build upload request for Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T050: Prepare task envelope update to planning phase\nconst data = $('Parse Spec Output').first().json;\nconst uploadResult = $input.first().json;\n\nconst now = new Date().toISOString();\nconst envelope = data.task_envelope;\n\n// Update phases.intake to completed\nenvelope.phases.intake = {\n  status: 'completed',\n  started_at: envelope.phases.intake?.started_at || now,\n  completed_at: now,\n  agent_invocations: 1,\n  output_path: `agent-spec/${data.task_id}/spec.md`\n};\n\n// Update current state\nenvelope.status = 'in_progress';\nenvelope.phase = 'planning';\nenvelope.current_agent = 'pm';\nenvelope.version = (envelope.version || 1) + 1;\n\nreturn [{\n  json: {\n    operation: 'update',\n    task_id: data.task_id,\n    task_envelope: envelope\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_update",
+      "name": "Prepare Envelope Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400],
+      "notes": "T050: Update task envelope to planning phase"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update_envelope",
+      "name": "Update Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2000, 400],
+      "notes": "T050: Update envelope via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return success result\nconst data = $('Parse Spec Output').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'intake',\n    status: 'completed',\n    next_phase: 'planning',\n    spec_path: `agent-spec/${data.task_id}/spec.md`,\n    needs_human: false\n  }\n}];"
+      },
+      "id": "code_return_success",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 400],
+      "notes": "Return success with next phase info"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T051: Return needs_human flag with questions array\nconst data = $input.first().json;\n\n// Update task envelope with needs_clarification status\nconst envelope = data.task_envelope;\nconst now = new Date().toISOString();\n\nenvelope.phases.intake = {\n  status: 'needs_clarification',\n  started_at: envelope.phases.intake?.started_at || now,\n  agent_invocations: 1\n};\n\nenvelope.status = 'needs_clarification';\nenvelope.current_agent = 'none';\n\n// Store clarification questions in escalation\nenvelope.escalation = {\n  type: 'clarification',\n  phase: 'intake',\n  timestamp: now,\n  questions: data.clarifications\n};\n\nenvelope.version = (envelope.version || 1) + 1;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'intake',\n    status: 'needs_clarification',\n    needs_human: true,\n    questions: data.clarifications,\n    task_envelope: envelope\n  }\n}];"
+      },
+      "id": "code_return_needs_human",
+      "name": "Return Needs Human",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 200],
+      "notes": "T051: Return needs_human with clarification questions"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update_needs_clarification",
+      "name": "Update Envelope (Clarification)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 200],
+      "notes": "Update envelope with needs_clarification status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare envelope update for needs_clarification\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'update',\n    task_id: data.task_id,\n    task_envelope: data.task_envelope\n  }\n}];"
+      },
+      "id": "code_prepare_clarification_update",
+      "name": "Prepare Clarification Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Final return for needs_human path\nconst data = $('Return Needs Human').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'intake',\n    status: 'needs_clarification',\n    needs_human: true,\n    questions: data.questions\n  }\n}];"
+      },
+      "id": "code_final_needs_human",
+      "name": "Final Needs Human Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 200]
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'intake',\n    error: error.message || 'Unknown error in PM Intake workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Build Intake Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Intake Prompt": {
+      "main": [
+        [{ "node": "Call Agent Runner", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Agent Runner": {
+      "main": [
+        [{ "node": "Parse Spec Output", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Spec Output": {
+      "main": [
+        [{ "node": "Route by Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Status": {
+      "main": [
+        [{ "node": "Return Needs Human", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Spec Upload", "type": "main", "index": 0 }]
+      ]
+    },
+    "Return Needs Human": {
+      "main": [
+        [{ "node": "Prepare Clarification Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Clarification Update": {
+      "main": [
+        [{ "node": "Update Envelope (Clarification)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Envelope (Clarification)": {
+      "main": [
+        [{ "node": "Final Needs Human Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Spec Upload": {
+      "main": [
+        [{ "node": "Upload spec.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Upload spec.md": {
+      "main": [
+        [{ "node": "Prepare Envelope Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Update": {
+      "main": [
+        [{ "node": "Update Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Task Envelope": {
+      "main": [
+        [{ "node": "Return Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-2" },
+    { "name": "pm-agent" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "pm-intake",
+    "instanceId": "autonomous-dev-team"
+  }
+}
