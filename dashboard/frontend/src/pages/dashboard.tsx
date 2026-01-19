@@ -7,6 +7,9 @@ import { TokenRefresh } from '@/components/token-refresh';
 import { AgentExecutor } from '@/components/agent-executor';
 import { ExecutionHistory } from '@/components/execution-history';
 import { CronJobPanel } from '@/components/cronjob-panel';
+import { PipelineBoard } from '@/components/pipeline-board';
+import { ExecutionFeed } from '@/components/execution-feed';
+import { StorageBrowser } from '@/components/storage-browser';
 
 export function Dashboard() {
   const { instance, accounts } = useMsal();
@@ -75,6 +78,21 @@ export function Dashboard() {
         {/* CronJob Panel */}
         <div className="mb-6">
           <CronJobPanel />
+        </div>
+
+        {/* Task Pipeline - Kanban view of agent tasks */}
+        <div className="mb-6">
+          <PipelineBoard />
+        </div>
+
+        {/* n8n Execution Feed - Real-time workflow executions */}
+        <div className="mb-6">
+          <ExecutionFeed />
+        </div>
+
+        {/* Storage Browser - Azure Blob Storage */}
+        <div className="mb-6">
+          <StorageBrowser />
         </div>
 
         {/* Full Width: Agent Executor */}

@@ -1,0 +1,393 @@
+# API Contract: Blob Storage Browser
+# Feature: 010-dashboard-observability
+
+openapi: 3.0.3
+info:
+  title: Dashboard Storage Browser API
+  version: 1.0.0
+  description: API for browsing and managing Azure Blob Storage artifacts
+
+paths:
+  /api/storage/containers:
+    get:
+      summary: List storage containers
+      description: Returns all available blob storage containers
+      tags:
+        - Storage
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Containers retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/storage/containers/{container}/blobs:
+    get:
+      summary: List blobs in container
+      description: Returns blobs and folders at the specified path
+      tags:
+        - Storage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: container
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: query
+          description: Folder path prefix (e.g., "FEAT-123/")
+          schema:
+            type: string
+            default: ""
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: continuationToken
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Blobs retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Container not found
+
+  /api/storage/containers/{container}/blobs/{blobPath}:
+    get:
+      summary: Get blob content
+      description: Returns blob content for preview (text files only)
+      tags:
+        - Storage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: container
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: blobPath
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: maxSize
+          in: query
+          description: Maximum content size to return (bytes)
+          schema:
+            type: integer
+            default: 102400
+            maximum: 1048576
+      responses:
+        '200':
+          description: Blob content retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobContentResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Blob not found
+        '413':
+          description: Blob too large for preview
+
+    delete:
+      summary: Delete blob
+      description: Permanently deletes a blob (requires confirmation)
+      tags:
+        - Storage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: container
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: blobPath
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlobDeleteRequest'
+      responses:
+        '200':
+          description: Blob deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobOperationResponse'
+        '400':
+          description: Confirmation required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Blob not found
+
+  /api/storage/containers/{container}/blobs/{blobPath}/download:
+    get:
+      summary: Get download URL
+      description: Returns a time-limited SAS URL for downloading the blob
+      tags:
+        - Storage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: container
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: blobPath
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Download URL generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobDownloadResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Blob not found
+
+  /api/storage/containers/{container}/blobs/{blobPath}/lease:
+    delete:
+      summary: Break blob lease
+      description: Breaks an active lease on a stuck blob
+      tags:
+        - Storage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: container
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: blobPath
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaseBreakRequest'
+      responses:
+        '200':
+          description: Lease broken
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobOperationResponse'
+        '400':
+          description: Confirmation required or blob not leased
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Blob not found
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+
+  schemas:
+    ContainerListResponse:
+      type: object
+      required:
+        - containers
+      properties:
+        containers:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageContainer'
+
+    StorageContainer:
+      type: object
+      required:
+        - name
+        - purpose
+      properties:
+        name:
+          type: string
+        purpose:
+          type: string
+          description: Human-readable description
+        blobCount:
+          type: integer
+        lastModified:
+          type: string
+          format: date-time
+
+    BlobListResponse:
+      type: object
+      required:
+        - container
+        - path
+        - blobs
+        - folders
+        - hasMore
+      properties:
+        container:
+          type: string
+        path:
+          type: string
+        blobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/StorageBlob'
+        folders:
+          type: array
+          items:
+            type: string
+          description: Subfolder names at current path
+        hasMore:
+          type: boolean
+        continuationToken:
+          type: string
+
+    StorageBlob:
+      type: object
+      required:
+        - name
+        - path
+        - container
+        - size
+        - contentType
+        - lastModified
+        - leaseState
+        - leaseStatus
+        - isFolder
+      properties:
+        name:
+          type: string
+          description: Blob filename
+        path:
+          type: string
+          description: Full path including folders
+        container:
+          type: string
+        size:
+          type: integer
+          description: Size in bytes
+        contentType:
+          type: string
+        lastModified:
+          type: string
+          format: date-time
+        leaseState:
+          $ref: '#/components/schemas/LeaseState'
+        leaseStatus:
+          $ref: '#/components/schemas/LeaseStatus'
+        isFolder:
+          type: boolean
+        extension:
+          type: string
+          description: File extension without dot
+
+    BlobContentResponse:
+      type: object
+      required:
+        - blob
+        - content
+        - truncated
+      properties:
+        blob:
+          $ref: '#/components/schemas/StorageBlob'
+        content:
+          type: string
+        truncated:
+          type: boolean
+          description: True if content exceeds maxSize
+
+    BlobDownloadResponse:
+      type: object
+      required:
+        - blob
+        - downloadUrl
+        - expiresAt
+      properties:
+        blob:
+          $ref: '#/components/schemas/StorageBlob'
+        downloadUrl:
+          type: string
+          format: uri
+          description: Time-limited SAS URL
+        expiresAt:
+          type: string
+          format: date-time
+
+    BlobDeleteRequest:
+      type: object
+      required:
+        - confirm
+      properties:
+        confirm:
+          type: boolean
+          description: Must be true to proceed with deletion
+
+    LeaseBreakRequest:
+      type: object
+      required:
+        - confirm
+      properties:
+        confirm:
+          type: boolean
+          description: Must be true to break the lease
+
+    BlobOperationResponse:
+      type: object
+      required:
+        - success
+        - message
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        blob:
+          $ref: '#/components/schemas/StorageBlob'
+
+    LeaseState:
+      type: string
+      enum: [available, leased, expired, breaking, broken]
+
+    LeaseStatus:
+      type: string
+      enum: [locked, unlocked]

@@ -9,6 +9,14 @@ export interface Config {
     namespace: string;
     serviceUrl: string;
   };
+  n8n: {
+    apiUrl: string;
+    apiKey: string;
+  };
+  storage: {
+    accountName: string;
+    connectionString?: string;
+  };
   healthPollIntervalMs: number;
 }
 
@@ -38,6 +46,14 @@ export function loadConfig(): Config {
         'CLAUDE_AGENT_SERVICE_URL',
         'http://claude-agent.claude-agent.svc.cluster.local:80'
       ),
+    },
+    n8n: {
+      apiUrl: getEnvOrDefault('N8N_API_URL', 'http://n8n.n8n.svc.cluster.local:5678'),
+      apiKey: getEnvOrDefault('N8N_API_KEY', ''),
+    },
+    storage: {
+      accountName: getEnvOrDefault('AZURE_STORAGE_ACCOUNT', 'iiusagentstore'),
+      connectionString: process.env['AZURE_STORAGE_CONNECTION_STRING'],
     },
     healthPollIntervalMs: parseInt(
       getEnvOrDefault('HEALTH_POLL_INTERVAL_MS', '30000'),

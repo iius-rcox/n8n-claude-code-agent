@@ -1,0 +1,257 @@
+# API Contract: n8n Execution Feed
+# Feature: 010-dashboard-observability
+
+openapi: 3.0.3
+info:
+  title: Dashboard n8n Executions API
+  version: 1.0.0
+  description: API for monitoring n8n workflow executions
+
+paths:
+  /api/executions:
+    get:
+      summary: List n8n workflow executions
+      description: Returns recent workflow executions with optional filtering
+      tags:
+        - Executions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: workflowId
+          in: query
+          schema:
+            type: string
+        - name: workflowName
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [running, success, error, canceled, waiting]
+        - name: taskId
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 25
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Executions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/executions/{executionId}:
+    get:
+      summary: Get execution details
+      description: Returns full details for a specific execution including input/output data
+      tags:
+        - Executions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: executionId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: includeData
+          in: query
+          description: Include full input/output data
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Execution details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Execution not found
+
+  /api/executions/workflows:
+    get:
+      summary: List available workflows
+      description: Returns list of n8n workflows for filtering
+      tags:
+        - Executions
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Workflows retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workflows:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkflowSummary'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+
+  schemas:
+    ExecutionListResponse:
+      type: object
+      required:
+        - executions
+        - total
+        - hasMore
+      properties:
+        executions:
+          type: array
+          items:
+            $ref: '#/components/schemas/N8nExecution'
+        total:
+          type: integer
+        hasMore:
+          type: boolean
+        cursor:
+          type: string
+
+    N8nExecution:
+      type: object
+      required:
+        - id
+        - workflowId
+        - workflowName
+        - status
+        - mode
+        - startedAt
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        workflowName:
+          type: string
+        status:
+          $ref: '#/components/schemas/ExecutionStatus'
+        mode:
+          $ref: '#/components/schemas/ExecutionMode'
+        startedAt:
+          type: string
+          format: date-time
+        stoppedAt:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+        taskId:
+          type: string
+          description: Associated task ID if execution is part of agent workflow
+        phase:
+          type: string
+          enum: [intake, planning, implementation, verification, review, release]
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            node:
+              type: string
+
+    ExecutionDetailResponse:
+      type: object
+      required:
+        - execution
+      properties:
+        execution:
+          $ref: '#/components/schemas/N8nExecution'
+        inputData:
+          type: object
+          additionalProperties: true
+        outputData:
+          type: object
+          additionalProperties: true
+        nodeExecutions:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeExecution'
+
+    NodeExecution:
+      type: object
+      required:
+        - nodeName
+        - nodeType
+        - status
+        - startedAt
+        - stoppedAt
+        - durationMs
+      properties:
+        nodeName:
+          type: string
+        nodeType:
+          type: string
+        status:
+          type: string
+          enum: [success, error]
+        startedAt:
+          type: string
+          format: date-time
+        stoppedAt:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+        error:
+          type: string
+
+    WorkflowSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    ExecutionStatus:
+      type: string
+      enum: [running, success, error, canceled, waiting]
+
+    ExecutionMode:
+      type: string
+      enum: [manual, trigger, webhook, internal]

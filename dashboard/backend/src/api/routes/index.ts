@@ -6,10 +6,16 @@ import { createAuthRouter } from './auth.js';
 import { createCredentialsRouter } from './credentials.js';
 import { createClaudeRoutes } from './claude.js';
 import { createK8sRouter } from './k8s.js';
+import { createPipelineRouter } from './pipeline.js';
+import { createN8nRouter } from './n8n.js';
+import { createStorageRouter } from './storage.js';
 import { KubernetesService } from '../../services/kubernetes.js';
 import { TokenRefreshService } from '../../services/token-refresh.js';
 import { ClaudeAgentService } from '../../services/claude-agent.js';
 import { CredentialsWatcherService } from '../../services/credentials-watcher.js';
+import { BlobStorageService } from '../../services/blob-storage.js';
+import { N8nClient } from '../../services/n8n-client.js';
+import { PipelineStateService } from '../../services/pipeline-state.js';
 
 export function createApiRouter(config: Config): Router {
   const router = Router();
@@ -18,6 +24,9 @@ export function createApiRouter(config: Config): Router {
   const k8sService = new KubernetesService(config);
   const claudeService = new ClaudeAgentService(config);
   const tokenRefreshService = new TokenRefreshService(config, k8sService, claudeService);
+  const blobStorageService = new BlobStorageService(config);
+  const n8nClient = new N8nClient(config);
+  const pipelineService = new PipelineStateService(blobStorageService);
 
   // Start credentials file watcher for auto-push on claude /login
   const credentialsWatcher = new CredentialsWatcherService(tokenRefreshService);
@@ -31,11 +40,14 @@ export function createApiRouter(config: Config): Router {
   router.use(requireAuthorizedGroup);
 
   // Mount routers
-  router.use('/health', createHealthRouter(k8sService, claudeService));
+  router.use('/health', createHealthRouter(k8sService, claudeService, blobStorageService, n8nClient));
   router.use('/auth', createAuthRouter(claudeService));
   router.use('/credentials', createCredentialsRouter(tokenRefreshService, config));
   router.use('/', createClaudeRoutes(config)); // Handles /execute and /executions
   router.use('/cronjobs', createK8sRouter(k8sService));
+  router.use('/pipeline', createPipelineRouter(pipelineService));
+  router.use('/n8n', createN8nRouter(n8nClient));
+  router.use('/storage', createStorageRouter(blobStorageService));
 
   return router;
 }

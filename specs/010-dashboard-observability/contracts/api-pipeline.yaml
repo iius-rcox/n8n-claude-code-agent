@@ -1,0 +1,325 @@
+# API Contract: Task Pipeline
+# Feature: 010-dashboard-observability
+
+openapi: 3.0.3
+info:
+  title: Dashboard Pipeline API
+  version: 1.0.0
+  description: Task pipeline visualization and management API
+
+paths:
+  /api/pipeline:
+    get:
+      summary: Get pipeline overview
+      description: Returns all tasks grouped by phase for Kanban board display
+      tags:
+        - Pipeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_progress, paused, stuck, completed, failed, cancelled]
+        - name: priority
+          in: query
+          schema:
+            type: string
+            enum: [low, normal, high, critical]
+      responses:
+        '200':
+          description: Pipeline data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PipelineResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/pipeline/tasks/{taskId}:
+    get:
+      summary: Get task details
+      description: Returns full task envelope with artifacts
+      tags:
+        - Pipeline
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task details retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDetailResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Task not found
+
+  /api/pipeline/stats:
+    get:
+      summary: Get pipeline statistics
+      description: Returns aggregate statistics for all phases
+      tags:
+        - Pipeline
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Statistics retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  totalTasks:
+                    type: integer
+                  phaseStats:
+                    type: object
+                    additionalProperties:
+                      $ref: '#/components/schemas/PhaseStats'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+
+  schemas:
+    PipelineResponse:
+      type: object
+      required:
+        - timestamp
+        - tasks
+        - phaseStats
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskSummary'
+        phaseStats:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/PhaseStats'
+
+    TaskSummary:
+      type: object
+      required:
+        - taskId
+        - title
+        - status
+        - currentPhase
+        - priority
+        - timeInPhase
+        - isStuck
+        - createdAt
+        - updatedAt
+      properties:
+        taskId:
+          type: string
+        title:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        currentPhase:
+          $ref: '#/components/schemas/PipelinePhase'
+        priority:
+          $ref: '#/components/schemas/TaskPriority'
+        timeInPhase:
+          type: integer
+          description: Milliseconds in current phase
+        isStuck:
+          type: boolean
+          description: True if timeInPhase exceeds 30 minutes
+        currentAgent:
+          type: string
+        prUrl:
+          type: string
+          format: uri
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskDetailResponse:
+      type: object
+      required:
+        - task
+      properties:
+        task:
+          $ref: '#/components/schemas/TaskEnvelope'
+        artifacts:
+          type: object
+          properties:
+            specification:
+              $ref: '#/components/schemas/ArtifactPreview'
+            plan:
+              $ref: '#/components/schemas/ArtifactPreview'
+            verification:
+              $ref: '#/components/schemas/ArtifactPreview'
+            review:
+              $ref: '#/components/schemas/ArtifactPreview'
+
+    TaskEnvelope:
+      type: object
+      required:
+        - taskId
+        - title
+        - status
+        - currentPhase
+        - priority
+        - createdAt
+        - updatedAt
+        - phases
+        - history
+      properties:
+        taskId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        currentPhase:
+          $ref: '#/components/schemas/PipelinePhase'
+        priority:
+          $ref: '#/components/schemas/TaskPriority'
+        repository:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        createdBy:
+          type: string
+        phases:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/PhaseState'
+        retryCounts:
+          type: object
+          properties:
+            verificationAttempts:
+              type: integer
+            implementationAttempts:
+              type: integer
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskHistoryEntry'
+
+    PhaseState:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed, skipped]
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        durationMs:
+          type: integer
+        agent:
+          type: string
+        error:
+          type: string
+
+    PhaseStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        inProgress:
+          type: integer
+        completed:
+          type: integer
+        failed:
+          type: integer
+        stuck:
+          type: integer
+
+    TaskHistoryEntry:
+      type: object
+      required:
+        - timestamp
+        - event
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        event:
+          type: string
+          enum:
+            - task_created
+            - phase_started
+            - phase_completed
+            - phase_failed
+            - task_paused
+            - task_resumed
+            - task_completed
+            - task_failed
+            - task_cancelled
+            - human_intervention_requested
+            - human_intervention_completed
+        phase:
+          $ref: '#/components/schemas/PipelinePhase'
+        actor:
+          type: string
+        message:
+          type: string
+        durationMs:
+          type: integer
+
+    ArtifactPreview:
+      type: object
+      properties:
+        path:
+          type: string
+        size:
+          type: integer
+        lastModified:
+          type: string
+          format: date-time
+        contentPreview:
+          type: string
+          description: First 500 characters of content
+
+    TaskStatus:
+      type: string
+      enum: [pending, in_progress, paused, stuck, completed, failed, cancelled]
+
+    PipelinePhase:
+      type: string
+      enum: [intake, planning, implementation, verification, review, release]
+
+    TaskPriority:
+      type: string
+      enum: [low, normal, high, critical]
