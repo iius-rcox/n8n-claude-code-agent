@@ -46,10 +46,60 @@ interface N8nApiWorkflow {
 export class N8nClient {
   private baseUrl: string;
   private apiKey: string;
+  private workflowFilter: string;
+  private workflowNameCache: Map<string, string> = new Map();
+  private filteredWorkflowIds: Set<string> = new Set();
+  private cacheExpiry: number = 0;
+  private readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor(config: Config) {
     this.baseUrl = config.n8n.apiUrl;
     this.apiKey = config.n8n.apiKey;
+    this.workflowFilter = config.n8n.workflowFilter;
+  }
+
+  /**
+   * Refresh workflow name cache if expired
+   */
+  private async refreshWorkflowCache(): Promise<void> {
+    if (Date.now() < this.cacheExpiry) {
+      return; // Cache still valid
+    }
+
+    try {
+      const workflows = await this.getWorkflows();
+      this.workflowNameCache.clear();
+      this.filteredWorkflowIds.clear();
+
+      for (const workflow of workflows) {
+        this.workflowNameCache.set(workflow.id, workflow.name);
+        // Track workflows matching the filter
+        if (!this.workflowFilter || workflow.name.startsWith(this.workflowFilter)) {
+          this.filteredWorkflowIds.add(workflow.id);
+        }
+      }
+      this.cacheExpiry = Date.now() + this.CACHE_TTL_MS;
+    } catch {
+      // Keep existing cache on error
+    }
+  }
+
+  /**
+   * Check if a workflow ID matches the filter
+   */
+  private isWorkflowFiltered(workflowId: string): boolean {
+    // If no filter is set, include all workflows
+    if (!this.workflowFilter) {
+      return true;
+    }
+    return this.filteredWorkflowIds.has(workflowId);
+  }
+
+  /**
+   * Get workflow name from cache
+   */
+  private getWorkflowName(workflowId: string): string {
+    return this.workflowNameCache.get(workflowId) || 'Unknown Workflow';
   }
 
   /**
@@ -66,6 +116,9 @@ export class N8nClient {
     if (!this.isConfigured()) {
       return { executions: [], total: 0, hasMore: false };
     }
+
+    // Refresh workflow name cache before fetching executions
+    await this.refreshWorkflowCache();
 
     const url = new URL(`${this.baseUrl}/api/v1/executions`);
 
@@ -89,11 +142,13 @@ export class N8nClient {
     const data = await response.json() as { data?: N8nApiExecution[]; nextCursor?: string };
     const executions = this.transformExecutions(data.data || []);
 
-    // Filter by workflow name client-side if needed
-    let filtered = executions;
+    // Filter by configured workflow filter (e.g., "Agent Dev Team")
+    let filtered = executions.filter((e) => this.isWorkflowFiltered(e.workflowId));
+
+    // Further filter by workflow name if specified in filters
     if (filters.workflowName) {
       const nameLower = filters.workflowName.toLowerCase();
-      filtered = executions.filter((e) =>
+      filtered = filtered.filter((e) =>
         e.workflowName.toLowerCase().includes(nameLower)
       );
     }
@@ -238,7 +293,7 @@ export class N8nClient {
     return {
       id: item.id,
       workflowId: item.workflowId,
-      workflowName: item.workflowData?.name || 'Unknown Workflow',
+      workflowName: item.workflowData?.name || this.getWorkflowName(item.workflowId),
       status: this.mapStatus(item),
       mode: this.mapMode(item.mode),
       startedAt,

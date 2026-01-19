@@ -23,9 +23,15 @@ function mapPodToHealthStatus(pod: PodHealth): HealthStatus {
 
   if (pod.phase === 'Running' && pod.readyContainers === pod.totalContainers) {
     status = 'healthy';
+  } else if (pod.phase === 'Succeeded') {
+    // Job pods that completed successfully
+    status = 'healthy';
   } else if (pod.phase === 'Pending') {
     status = 'pending';
-  } else if (pod.phase === 'Failed' || pod.readyContainers < pod.totalContainers) {
+  } else if (pod.phase === 'Failed') {
+    status = 'unhealthy';
+  } else if (pod.phase === 'Running' && pod.readyContainers < pod.totalContainers) {
+    // Running but not all containers ready
     status = 'unhealthy';
   }
 

@@ -12,6 +12,7 @@ export interface Config {
   n8n: {
     apiUrl: string;
     apiKey: string;
+    workflowFilter: string; // Filter workflows by name prefix (e.g., "Agent Dev Team")
   };
   storage: {
     accountName: string;
@@ -50,6 +51,7 @@ export function loadConfig(): Config {
     n8n: {
       apiUrl: getEnvOrDefault('N8N_API_URL', 'http://n8n.n8n.svc.cluster.local:5678'),
       apiKey: getEnvOrDefault('N8N_API_KEY', ''),
+      workflowFilter: getEnvOrDefault('N8N_WORKFLOW_FILTER', 'Agent Dev Team'),
     },
     storage: {
       accountName: getEnvOrDefault('AZURE_STORAGE_ACCOUNT', 'iiusagentstore'),
