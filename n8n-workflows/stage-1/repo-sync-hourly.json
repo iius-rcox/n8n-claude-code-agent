@@ -1,0 +1,110 @@
+{
+  "name": "Repo Sync - Hourly GitHub to Blob",
+  "nodes": [
+    {
+      "id": "schedule-trigger",
+      "name": "Hourly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 300],
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 1 }]
+        }
+      }
+    },
+    {
+      "id": "fetch-repos",
+      "name": "Fetch GitHub Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/users/iius-rcox/repos?type=all&sort=full_name&per_page=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Accept", "value": "application/vnd.github+json" },
+            { "name": "X-GitHub-Api-Version", "value": "2022-11-28" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "transform-repos",
+      "name": "Transform for Dropdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 300],
+      "parameters": {
+        "jsCode": "// Get all repos from GitHub API response\nconst repos = $input.all();\n\n// Filter out archived repos and sort alphabetically\nconst activeRepos = repos\n  .filter(item => item.json && !item.json.archived)\n  .sort((a, b) => (a.json.full_name || '').localeCompare(b.json.full_name || ''));\n\n// Transform to n8n dropdown format\nconst dropdownOptions = activeRepos.map(item => ({\n  option: item.json.full_name\n}));\n\n// Return the data structure for blob storage\nreturn [{\n  json: {\n    dropdownOptions,\n    repoCount: dropdownOptions.length,\n    lastUpdated: new Date().toISOString(),\n    source: 'github-api'\n  }\n}];"
+      }
+    },
+    {
+      "id": "store-blob",
+      "name": "Store to Azure Blob",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 300],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://iiusagentstore.blob.core.windows.net/agent-state/repos.json{{ $env.AZURE_STORAGE_SAS_TOKEN }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-ms-blob-type", "value": "BlockBlob" },
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-ms-version", "value": "2020-10-02" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={{ JSON.stringify($json, null, 2) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "log-result",
+      "name": "Log Sync Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [880, 300],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "status", "name": "status", "value": "success", "type": "string" },
+            { "id": "repo-count", "name": "repoCount", "value": "={{ $('Transform for Dropdown').item.json.repoCount }}", "type": "number" },
+            { "id": "timestamp", "name": "syncedAt", "value": "={{ $now.toISO() }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Hourly Schedule": {
+      "main": [[{ "node": "Fetch GitHub Repos", "type": "main", "index": 0 }]]
+    },
+    "Fetch GitHub Repos": {
+      "main": [[{ "node": "Transform for Dropdown", "type": "main", "index": 0 }]]
+    },
+    "Transform for Dropdown": {
+      "main": [[{ "node": "Store to Azure Blob", "type": "main", "index": 0 }]]
+    },
+    "Store to Azure Blob": {
+      "main": [[{ "node": "Log Sync Result", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "description": "Hourly scheduled workflow that fetches GitHub repos and caches them to Azure Blob Storage for the Feature Request Form dropdown.",
+    "version": "1.1.0",
+    "feature": "012-dynamic-repo-dropdown"
+  }
+}
