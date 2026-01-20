@@ -76,6 +76,9 @@ temp/
 .claude/
 CLAUDE.md
 
+# Playwright MCP screenshots
+.playwright-mcp/
+
 # Speckit
 .specify/
 

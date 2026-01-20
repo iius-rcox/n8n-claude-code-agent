@@ -1,530 +1,262 @@
 {
-  "name": "Feature Request Form",
+  "name": "Agent Dev Team - Feature Request Form",
   "nodes": [
     {
       "parameters": {
-        "formTitle": "Feature Request",
-        "formDescription": "Submit a feature request for the autonomous dev team to implement.",
-        "responseMode": "responseNode",
-        "formFields": {
-          "values": [
-            {
-              "fieldLabel": "Title",
-              "fieldType": "text",
-              "requiredField": true,
-              "placeholder": "Brief feature title (e.g., 'Add user authentication')"
-            },
-            {
-              "fieldLabel": "Description",
-              "fieldType": "textarea",
-              "requiredField": true,
-              "placeholder": "Detailed description of the feature. Include user stories if possible."
-            },
-            {
-              "fieldLabel": "Priority",
-              "fieldType": "dropdown",
-              "requiredField": true,
-              "fieldOptions": {
-                "values": [
-                  { "option": "low" },
-                  { "option": "medium" },
-                  { "option": "high" },
-                  { "option": "critical" }
-                ]
-              }
-            },
-            {
-              "fieldLabel": "Target Repository",
-              "fieldType": "text",
-              "requiredField": true,
-              "placeholder": "https://github.com/ii-us/repository-name"
-            },
-            {
-              "fieldLabel": "Acceptance Criteria",
-              "fieldType": "textarea",
-              "requiredField": true,
-              "placeholder": "List testable criteria that define when this feature is complete."
-            }
-          ]
-        }
+        "jsCode": "// Generate unique task ID\nconst timestamp = Date.now();\nconst random = Math.random().toString(36).substring(2, 8);\nconst taskId = `FEAT-${timestamp}-${random}`;\n\n// Get data from the current input (from Merge Form Results)\nconst currentInput = $input.first().json;\n\n// Get form data from Step 1 (Feature Request Form trigger)\nconst step1Data = $('Feature Request Form').first().json;\n\n// Get form data from Step 2 (Select Repository Dropdown or Fallback)\nconst step2Data = currentInput;\n\n// Merge form data - Step 1 fields + Step 2 repository selection\nconst body = {\n  ...step1Data,\n  ...step2Data\n};\n\n// Create task envelope\nconst taskEnvelope = {\n  task_id: taskId,\n  status: 'pending',\n  phase: 'intake',\n  title: body['Feature Title'] || body.title || 'Untitled',\n  description: body['Description'] || body.description || '',\n  priority: (body['Priority'] || body.priority || 'medium').toLowerCase(),\n  repository: body['Target Repository'] || body.repository || 'iius-rcox/n8n-claude-code-agent',\n  acceptance_criteria: body['Acceptance Criteria'] || body.acceptance_criteria || '',\n  created_at: new Date().toISOString(),\n  created_by: 'form',\n  phases: {\n    intake: { status: 'pending' },\n    planning: { status: 'pending' },\n    implementation: { status: 'pending' },\n    verification: { status: 'pending' },\n    review: { status: 'pending' },\n    release: { status: 'pending' }\n  },\n  retry_counts: {\n    verification: 0,\n    review: 0\n  },\n  error_history: [],\n  artifacts: {}\n};\n\nreturn [{\n  json: {\n    task_id: taskId,\n    task_envelope: taskEnvelope,\n    form_data: body\n  }\n}];"
       },
-      "id": "trigger_form",
-      "name": "Feature Request Form",
-      "type": "n8n-nodes-base.formTrigger",
-      "typeVersion": 2.1,
-      "position": [240, 300],
-      "webhookId": "feature-request",
-      "notes": "T029: Entry point form with required fields per FR-001"
-    },
-    {
-      "parameters": {
-        "jsCode": "// T030: Generate task ID in format FEAT-{YYYYMMDD}-{random6}\nconst now = new Date();\nconst year = now.getFullYear();\nconst month = String(now.getMonth() + 1).padStart(2, '0');\nconst day = String(now.getDate()).padStart(2, '0');\nconst dateStr = `${year}${month}${day}`;\n\n// Generate 6 random alphanumeric characters\nconst chars = 'abcdefghijklmnopqrstuvwxyz0123456789';\nlet random = '';\nfor (let i = 0; i < 6; i++) {\n  random += chars.charAt(Math.floor(Math.random() * chars.length));\n}\n\nconst task_id = `FEAT-${dateStr}-${random}`;\n\nreturn [{\n  json: {\n    task_id,\n    form_data: $input.first().json,\n    created_at: now.toISOString()\n  }\n}];"
-      },
-      "id": "code_generate_task_id",
-      "name": "Generate Task ID",
+      "id": "generate-task",
+      "name": "Generate Task ID & Envelope",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300],
-      "notes": "T030: FEAT-{YYYYMMDD}-{random6} per FR-002"
-    },
-    {
-      "parameters": {
-        "jsCode": "// T031: Validate repository URL format\nconst form = $input.first().json.form_data;\nconst repoUrl = form['Target Repository'] || form.repository;\n\n// GitHub URL pattern: https://github.com/{owner}/{repo}\nconst githubPattern = /^https:\\/\\/github\\.com\\/[a-zA-Z0-9_.-]+\\/[a-zA-Z0-9_.-]+\\/?$/;\n\nif (!repoUrl) {\n  throw new Error('Repository URL is required');\n}\n\nif (!githubPattern.test(repoUrl)) {\n  throw new Error(`Invalid repository URL format: ${repoUrl}. Expected: https://github.com/{owner}/{repo}`);\n}\n\n// Extract owner and repo for later use\nconst parts = repoUrl.replace(/\\/$/, '').split('/');\nconst repo_name = parts.pop();\nconst repo_owner = parts.pop();\n\nreturn [{\n  json: {\n    ...$input.first().json,\n    repository: {\n      url: repoUrl,\n      owner: repo_owner,\n      name: repo_name\n    },\n    validation: {\n      repository_valid: true\n    }\n  }\n}];"
-      },
-      "id": "code_validate_repo",
-      "name": "Validate Repository URL",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [680, 300],
-      "notes": "T031: Validate GitHub URL format per FR-001"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "http://169.254.169.254/metadata/identity/oauth2/token",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "api-version", "value": "2019-08-01" },
-            { "name": "resource", "value": "https://storage.azure.com/" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Metadata", "value": "true" }
-          ]
-        },
-        "options": {
-          "response": { "response": { "fullResponse": true } },
-          "timeout": 10000
-        }
-      },
-      "id": "http_get_azure_token",
-      "name": "Get Azure Token",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [900, 300],
-      "notes": "Azure token via Workload Identity for blob operations"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Parse Azure token for blob storage operations\nconst tokenResponse = $input.first().json;\nconst previousData = $('Validate Repository URL').first().json;\n\nif (!tokenResponse.body || !tokenResponse.body.access_token) {\n  throw new Error('Failed to get Azure token: ' + JSON.stringify(tokenResponse));\n}\n\nreturn [{\n  json: {\n    ...previousData,\n    azure_token: tokenResponse.body.access_token\n  }\n}];"
-      },
-      "id": "code_parse_token",
-      "name": "Parse Azure Token",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1120, 300]
-    },
-    {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $env.AZURE_STORAGE_ACCOUNT_URL }}/agent-state",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            { "name": "restype", "value": "container" },
-            { "name": "comp", "value": "list" },
-            { "name": "prefix", "value": "={{ '' }}" }
-          ]
-        },
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            { "name": "Authorization", "value": "Bearer {{ $json.azure_token }}" },
-            { "name": "x-ms-version", "value": "2020-10-02" }
-          ]
-        },
-        "options": {
-          "response": { "response": { "fullResponse": true } },
-          "timeout": 15000
-        }
-      },
-      "id": "http_list_recent_tasks",
-      "name": "List Recent Tasks",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1340, 200],
-      "notes": "T032: Fetch recent tasks for duplicate detection"
-    },
-    {
-      "parameters": {
-        "jsCode": "// T032: Check for duplicate submissions (same title+repo within 24 hours)\n// T033: Check rate limiting (5 submissions per hour per user)\n\nconst data = $('Parse Azure Token').first().json;\nconst listResponse = $input.first().json;\nconst now = new Date();\nconst oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);\nconst oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);\n\n// Parse blob list from XML response\nlet recentTasks = [];\nif (listResponse.body && typeof listResponse.body === 'string') {\n  // Extract blob names from XML - simplified parsing\n  const blobMatches = listResponse.body.match(/<Name>([^<]+)<\\/Name>/g) || [];\n  recentTasks = blobMatches.map(m => m.replace(/<\\/?Name>/g, ''));\n}\n\n// For full implementation, we'd read each task envelope to check:\n// 1. Same title + same repo within 24 hours = duplicate\n// 2. More than 5 submissions in past hour = rate limited\n// For now, we'll do a simplified check based on task count\n\nconst todayPrefix = `FEAT-${data.task_id.split('-')[1]}`;\nconst todayTasks = recentTasks.filter(t => t.startsWith(todayPrefix));\n\n// Rate limiting: crude check - if >50 tasks today, flag for review\nconst rateLimitExceeded = todayTasks.length > 50;\n\nreturn [{\n  json: {\n    ...data,\n    duplicate_check: {\n      recent_task_count: recentTasks.length,\n      today_task_count: todayTasks.length,\n      is_duplicate: false, // Would need to read envelopes for real check\n      rate_limit_exceeded: rateLimitExceeded\n    }\n  }\n}];"
-      },
-      "id": "code_check_duplicates",
-      "name": "Check Duplicates & Rate Limits",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1560, 200],
-      "notes": "T032-T033: Duplicate detection and rate limiting"
-    },
-    {
-      "parameters": {
-        "rules": {
-          "rules": [
-            {
-              "outputKey": "rate_limited",
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.duplicate_check.rate_limit_exceeded }}",
-                    "rightValue": true,
-                    "operator": { "type": "boolean", "operation": "equals" }
-                  }
-                ]
-              }
-            },
-            {
-              "outputKey": "duplicate",
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.duplicate_check.is_duplicate }}",
-                    "rightValue": true,
-                    "operator": { "type": "boolean", "operation": "equals" }
-                  }
-                ]
-              }
-            },
-            {
-              "outputKey": "continue",
-              "conditions": {
-                "conditions": [
-                  {
-                    "leftValue": "={{ $json.duplicate_check.rate_limit_exceeded }}",
-                    "rightValue": false,
-                    "operator": { "type": "boolean", "operation": "equals" }
-                  }
-                ]
-              }
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "switch_validation",
-      "name": "Route Validation Result",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3,
-      "position": [1780, 200],
-      "notes": "Route based on duplicate/rate limit checks"
-    },
-    {
-      "parameters": {
-        "jsCode": "// T034: Scan for sensitive data patterns and redact\nconst data = $input.first().json;\nconst form = data.form_data;\n\n// Patterns to detect and redact\nconst sensitivePatterns = [\n  { name: 'api_key', pattern: /(?:api[_-]?key|apikey)[\\s=:]+['\"]?([a-zA-Z0-9_-]{20,})['\"]?/gi },\n  { name: 'password', pattern: /(?:password|passwd|pwd)[\\s=:]+['\"]?([^\\s'\"]{6,})['\"]?/gi },\n  { name: 'secret', pattern: /(?:secret|token)[\\s=:]+['\"]?([a-zA-Z0-9_-]{20,})['\"]?/gi },\n  { name: 'connection_string', pattern: /(?:connection[_-]?string|conn[_-]?str)[\\s=:]+['\"]?([^\\s'\"]+)['\"]?/gi },\n  { name: 'private_key', pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----/gi },\n  { name: 'aws_key', pattern: /AKIA[0-9A-Z]{16}/g },\n  { name: 'bearer_token', pattern: /Bearer\\s+[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+\\.[a-zA-Z0-9_-]+/gi }\n];\n\nlet redactedCount = 0;\nconst redactedFields = [];\n\n// Function to redact sensitive data\nfunction redactText(text, fieldName) {\n  if (!text || typeof text !== 'string') return text;\n  \n  let redactedText = text;\n  for (const { name, pattern } of sensitivePatterns) {\n    if (pattern.test(redactedText)) {\n      redactedText = redactedText.replace(pattern, `[REDACTED_${name.toUpperCase()}]`);\n      redactedCount++;\n      if (!redactedFields.includes(fieldName)) {\n        redactedFields.push(fieldName);\n      }\n    }\n    // Reset regex lastIndex for global patterns\n    pattern.lastIndex = 0;\n  }\n  return redactedText;\n}\n\n// Redact sensitive data from form fields\nconst sanitizedForm = {\n  title: form['Title'] || form.title,\n  description: redactText(form['Description'] || form.description, 'description'),\n  priority: form['Priority'] || form.priority,\n  acceptance_criteria: redactText(form['Acceptance Criteria'] || form.acceptance_criteria, 'acceptance_criteria')\n};\n\nreturn [{\n  json: {\n    ...data,\n    sanitized_form: sanitizedForm,\n    security: {\n      sensitive_data_found: redactedCount > 0,\n      redacted_count: redactedCount,\n      redacted_fields: redactedFields\n    }\n  }\n}];"
-      },
-      "id": "code_scan_sensitive",
-      "name": "Scan & Redact Sensitive Data",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2000, 300],
-      "notes": "T034: Detect and redact secrets, API keys, passwords"
-    },
-    {
-      "parameters": {
-        "jsCode": "// T035: Build task envelope per data-model.md schema\nconst data = $input.first().json;\nconst now = new Date().toISOString();\n\nconst taskEnvelope = {\n  // IDENTITY\n  task_id: data.task_id,\n  schema_version: \"1.0.0\",\n  created_at: data.created_at,\n  created_by: \"form\",\n  repository: data.repository.url,\n  \n  // REQUEST (immutable after creation)\n  request: {\n    title: data.sanitized_form.title,\n    description: data.sanitized_form.description,\n    priority: data.sanitized_form.priority,\n    acceptance_criteria: data.sanitized_form.acceptance_criteria\n  },\n  \n  // CURRENT STATE\n  status: \"pending\",\n  phase: \"intake\",\n  current_agent: \"none\",\n  version: 1,\n  \n  // PHASE PROGRESS\n  phases: {\n    intake: { status: \"pending\" },\n    planning: { status: \"pending\" },\n    implementation: { status: \"pending\" },\n    verification: { status: \"pending\" },\n    review: { status: \"pending\" },\n    release: { status: \"pending\" }\n  },\n  \n  // FEEDBACK LOOPS\n  feedback_loops: {\n    verification: { cycle_count: 0, max_cycles: 3, history: [] },\n    review: { cycle_count: 0, max_cycles: 2, history: [] }\n  },\n  \n  // ERROR TRACKING\n  error_history: [],\n  \n  // ESCALATION\n  escalation: null,\n  \n  // METADATA\n  metadata: {\n    security: data.security,\n    duplicate_check: data.duplicate_check\n  }\n};\n\n// Convert to YAML-like format for storage\nconst yaml = require('yaml');\nlet yamlContent;\ntry {\n  yamlContent = yaml.stringify(taskEnvelope);\n} catch (e) {\n  // Fallback to JSON if yaml not available\n  yamlContent = JSON.stringify(taskEnvelope, null, 2);\n}\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    task_envelope: taskEnvelope,\n    yaml_content: yamlContent,\n    azure_token: data.azure_token\n  }\n}];"
-      },
-      "id": "code_build_envelope",
-      "name": "Build Task Envelope",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2220, 300],
-      "notes": "T035: Create task envelope per data-model.md"
+      "position": [1120, 304]
     },
     {
       "parameters": {
         "method": "PUT",
-        "url": "={{ $env.AZURE_STORAGE_ACCOUNT_URL }}/agent-state/{{ $json.task_id }}/task-envelope.yml",
+        "url": "=https://iiusagentstore.blob.core.windows.net/agent-state/{{ $json.task_id }}/task-envelope.json{{ $env.AZURE_STORAGE_SAS_TOKEN }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "Bearer {{ $json.azure_token }}" },
-            { "name": "x-ms-version", "value": "2020-10-02" },
             { "name": "x-ms-blob-type", "value": "BlockBlob" },
-            { "name": "Content-Type", "value": "text/yaml" }
+            { "name": "Content-Type", "value": "application/json" },
+            { "name": "x-ms-version", "value": "2020-10-02" }
           ]
         },
         "sendBody": true,
         "contentType": "raw",
-        "body": "={{ $json.yaml_content }}",
-        "options": {
-          "response": { "response": { "fullResponse": true } },
-          "timeout": 30000
-        }
+        "body": "={{ JSON.stringify($json.task_envelope, null, 2) }}",
+        "options": { "response": { "response": { "fullResponse": true } } }
       },
-      "id": "http_create_blob",
-      "name": "Create Task Envelope Blob",
+      "id": "store-blob",
+      "name": "Store Task Envelope (Blob)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [2440, 300],
-      "notes": "T035: Store task envelope in Azure Blob agent-state container"
+      "position": [1344, 208]
     },
     {
       "parameters": {
-        "jsCode": "// Check blob creation result\nconst response = $input.first().json;\nconst taskData = $('Build Task Envelope').first().json;\n\nif (response.statusCode !== 201 && response.statusCode !== 200) {\n  throw new Error(`Failed to create task envelope: HTTP ${response.statusCode}`);\n}\n\nreturn [{\n  json: {\n    success: true,\n    task_id: taskData.task_id,\n    task_envelope: taskData.task_envelope,\n    blob_path: `agent-state/${taskData.task_id}/task-envelope.yml`\n  }\n}];"
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL || 'https://httpstat.us/200' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "Content-Type", "value": "application/json" }]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "body": "={\n  \"@type\": \"MessageCard\",\n  \"@context\": \"http://schema.org/extensions\",\n  \"themeColor\": \"0076D7\",\n  \"summary\": \"New Feature Request: {{ $json.task_id }}\",\n  \"sections\": [{\n    \"activityTitle\": \"New Feature Request Submitted\",\n    \"facts\": [\n      { \"name\": \"Task ID\", \"value\": \"{{ $json.task_id }}\" },\n      { \"name\": \"Title\", \"value\": \"{{ $json.task_envelope.title }}\" },\n      { \"name\": \"Priority\", \"value\": \"{{ $json.task_envelope.priority }}\" },\n      { \"name\": \"Repository\", \"value\": \"{{ $json.task_envelope.repository }}\" },\n      { \"name\": \"Status\", \"value\": \"Queued for Intake\" }\n    ],\n    \"markdown\": true\n  }]\n}",
+        "options": { "response": { "response": { "fullResponse": true } } }
       },
-      "id": "code_verify_blob",
-      "name": "Verify Blob Created",
+      "id": "notify-teams",
+      "name": "Notify Teams",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1344, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "merge-results",
+      "name": "Merge Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1568, 304]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "response-msg",
+              "name": "message",
+              "value": "=Your feature request **{{ $('Generate Task ID & Envelope').item.json.task_id }}** has been submitted successfully!\\n\\nYou will receive Teams notifications as it progresses through:\\n- Intake (specification)\\n- Planning\\n- Implementation\\n- Verification\\n- Review\\n- Release",
+              "type": "string"
+            },
+            {
+              "id": "task-id",
+              "name": "task_id",
+              "value": "={{ $('Generate Task ID & Envelope').item.json.task_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-response",
+      "name": "Prepare Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1792, 304]
+    },
+    {
+      "parameters": {
+        "workflowId": { "__rl": true, "mode": "id", "value": "ZU4cSyG5OMC0EmpY" },
+        "options": { "waitForSubWorkflow": false }
+      },
+      "id": "call-orchestrator",
+      "name": "Start Orchestration",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [2016, 304]
+    },
+    {
+      "id": "form-trigger",
+      "name": "Feature Request Form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [0, 304],
+      "webhookId": "feature-request-form",
+      "parameters": {
+        "path": "feature-request",
+        "formTitle": "Feature Request",
+        "formDescription": "Submit a new feature request for the autonomous dev team",
+        "formFields": {
+          "values": [
+            { "fieldLabel": "Feature Title", "fieldType": "text", "requiredField": true, "placeholder": "Brief title for the feature" },
+            { "fieldLabel": "Description", "fieldType": "textarea", "requiredField": true, "placeholder": "Detailed description of what you need" },
+            { "fieldLabel": "Priority", "fieldType": "dropdown", "requiredField": true, "fieldOptions": { "values": [{ "option": "low" }, { "option": "medium" }, { "option": "high" }, { "option": "critical" }] } },
+            { "fieldLabel": "Acceptance Criteria", "fieldType": "textarea", "requiredField": true, "placeholder": "How will we know when this feature is complete?" }
+          ]
+        },
+        "responseMode": "lastNode"
+      }
+    },
+    {
+      "id": "fetch-repos",
+      "name": "Read Cached Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [224, 304],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://iiusagentstore.blob.core.windows.net/agent-state/repos.json{{ $env.AZURE_STORAGE_SAS_TOKEN }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-ms-version", "value": "2020-10-02" }
+          ]
+        },
+        "options": { "response": { "response": { "fullResponse": false } } }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "transform-repos",
+      "name": "Transform Repo Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2660, 300],
-      "notes": "Verify blob creation succeeded"
+      "position": [448, 304],
+      "parameters": {
+        "jsCode": "// Read cached repos from blob storage\nconst input = $input.first();\n\n// Get the original form data from Step 1\nconst formData = $('Feature Request Form').first().json;\n\n// Check if data came back as binary (Azure Blob returns application/octet-stream)\nlet blobData = null;\nif (input.binary && input.binary.data) {\n  // Parse the base64 binary data\n  const base64Data = input.binary.data.data;\n  const jsonString = Buffer.from(base64Data, 'base64').toString('utf8');\n  try {\n    blobData = JSON.parse(jsonString);\n  } catch (e) {\n    blobData = null;\n  }\n} else if (input.json) {\n  // Data came back as JSON directly\n  blobData = input.json;\n}\n\n// Check if we got valid data with dropdownOptions\nconst hasValidData = blobData && blobData.dropdownOptions && blobData.dropdownOptions.length > 0;\n\nif (hasValidData) {\n  return [{\n    json: {\n      dropdownOptions: blobData.dropdownOptions,\n      repoCount: blobData.repoCount || blobData.dropdownOptions.length,\n      success: true,\n      lastUpdated: blobData.lastUpdated || 'unknown',\n      formData: formData\n    }\n  }];\n} else {\n  // Blob doesn't exist, is empty, or errored - use fallback path\n  return [{\n    json: {\n      dropdownOptions: [],\n      repoCount: 0,\n      success: false,\n      error: blobData ? 'No repos in cache' : 'Repo cache not found',\n      formData: formData\n    }\n  }];\n}"
+      }
     },
     {
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "={{ \"\\n✅ Feature Request Submitted Successfully!\\n\\n\" + \"Task ID: \" + $json.task_id + \"\\n\\n\" + \"Your feature request has been received and will be processed by the autonomous dev team.\\n\" + \"You will receive Teams notifications as the task progresses through:\\n\" + \"  1. Intake (specification creation)\\n\" + \"  2. Planning (implementation plan)\\n\" + \"  3. Implementation (code changes)\\n\" + \"  4. Verification (testing)\\n\" + \"  5. Review (code review)\\n\" + \"  6. Release (PR merge)\\n\\n\" + \"Track progress at: https://ops-dashboard.ii-us.com/tasks/\" + $json.task_id }}",
-        "options": {
-          "responseCode": 200,
-          "responseHeaders": {
-            "entries": [
-              { "name": "Content-Type", "value": "text/plain" }
-            ]
-          }
-        }
-      },
-      "id": "response_success",
-      "name": "Success Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [2880, 300],
-      "notes": "T036: Return success with task ID"
-    },
-    {
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "={{ \"\\n⚠️ Submission Rate Limited\\n\\n\" + \"Too many submissions detected. Please wait before submitting another feature request.\\n\" + \"Current limit: 50 submissions per day.\\n\\n\" + \"If this is urgent, please contact the team directly.\" }}",
-        "options": {
-          "responseCode": 429,
-          "responseHeaders": {
-            "entries": [
-              { "name": "Content-Type", "value": "text/plain" },
-              { "name": "Retry-After", "value": "3600" }
-            ]
-          }
-        }
-      },
-      "id": "response_rate_limit",
-      "name": "Rate Limit Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [2000, 0],
-      "notes": "T037: Rate limit error response"
-    },
-    {
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "={{ \"\\n⚠️ Possible Duplicate Submission\\n\\n\" + \"A similar feature request was submitted recently.\\n\" + \"Existing Task ID: \" + ($json.duplicate_check.existing_task_id || 'Unknown') + \"\\n\\n\" + \"If this is a new request, please modify the title or description to distinguish it.\" }}",
-        "options": {
-          "responseCode": 409,
-          "responseHeaders": {
-            "entries": [
-              { "name": "Content-Type", "value": "text/plain" }
-            ]
-          }
-        }
-      },
-      "id": "response_duplicate",
-      "name": "Duplicate Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [2000, 100],
-      "notes": "T037: Duplicate detection error response"
-    },
-    {
-      "parameters": {
-        "respondWith": "text",
-        "responseBody": "={{ \"\\n❌ Validation Error\\n\\n\" + \"Error: \" + $json.error.message + \"\\n\\n\" + \"Please correct the following and try again:\\n\" + \"- Ensure all required fields are filled\\n\" + \"- Repository URL must be a valid GitHub URL (https://github.com/owner/repo)\\n\" + \"- Priority must be: low, medium, high, or critical\" }}",
-        "options": {
-          "responseCode": 400,
-          "responseHeaders": {
-            "entries": [
-              { "name": "Content-Type", "value": "text/plain" }
-            ]
-          }
-        }
-      },
-      "id": "response_validation_error",
-      "name": "Validation Error Response",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.1,
-      "position": [900, 500],
-      "notes": "T037: Validation error response"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Format validation error for response\nconst error = $input.first().json.error || { message: 'Unknown validation error' };\n\nreturn [{\n  json: {\n    error: {\n      type: 'validation_error',\n      message: error.message || String(error)\n    }\n  }\n}];"
-      },
-      "id": "code_format_validation_error",
-      "name": "Format Validation Error",
-      "type": "n8n-nodes-base.code",
+      "id": "check-repos",
+      "name": "Check Repos Loaded",
+      "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [680, 500]
+      "position": [672, 304],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "id": "check-success", "leftValue": "={{ $json.success }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        }
+      }
     },
     {
-      "parameters": {},
-      "id": "error_trigger",
-      "name": "Error Trigger",
-      "type": "n8n-nodes-base.errorTrigger",
+      "id": "form-dropdown",
+      "name": "Select Repository (Dropdown)",
+      "type": "n8n-nodes-base.form",
       "typeVersion": 1,
-      "position": [460, 500],
-      "notes": "Catch workflow errors"
+      "position": [896, 200],
+      "parameters": {
+        "operation": "page",
+        "defineForm": "json",
+        "jsonOutput": "={{ JSON.stringify([{\"fieldLabel\": \"Target Repository\", \"fieldType\": \"dropdown\", \"requiredField\": true, \"fieldOptions\": {\"values\": $json.dropdownOptions}}]) }}",
+        "options": { "formTitle": "Select Target Repository", "formDescription": "Choose the repository for this feature request" }
+      }
     },
     {
+      "id": "merge-form",
+      "name": "Merge Form Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1120, 400],
       "parameters": {
-        "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
+        "mode": "append",
         "options": {}
-      },
-      "id": "call_notification_hub",
-      "name": "Send Task Created Notification",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.1,
-      "position": [2660, 200],
-      "notes": "T038: Call Notification Hub with task_created event"
+      }
     },
     {
+      "id": "form-fallback",
+      "name": "Select Repository (Fallback)",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [896, 500],
       "parameters": {
-        "jsCode": "// Prepare notification payload for Notification Hub\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    event_type: 'task_created',\n    task_id: data.task_id,\n    task_envelope: data.task_envelope\n  }\n}];"
-      },
-      "id": "code_prepare_notification",
-      "name": "Prepare Notification Payload",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2440, 200],
-      "notes": "T038: Build notification event payload"
-    },
-    {
-      "parameters": {
-        "jsCode": "// T097: Prepare orchestrator trigger payload\nconst data = $('Verify Blob Created').first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    resume_source: 'form_submission'\n  }\n}];"
-      },
-      "id": "code_prepare_orchestrator",
-      "name": "Prepare Orchestrator Trigger",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2880, 200],
-      "notes": "T097: Prepare Master Orchestrator trigger"
-    },
-    {
-      "parameters": {
-        "workflowId": "={{ $env.MASTER_ORCHESTRATOR_WORKFLOW_ID }}",
-        "options": {}
-      },
-      "id": "call_master_orchestrator",
-      "name": "Trigger Master Orchestrator",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.1,
-      "position": [3100, 200],
-      "notes": "T097: Start autonomous processing"
+        "operation": "page",
+        "defineForm": "json",
+        "jsonOutput": "[{\"fieldLabel\": \"Target Repository (Unable to load list - enter manually)\", \"fieldType\": \"text\", \"requiredField\": true, \"placeholder\": \"iius-rcox/repository-name\"}]",
+        "options": { "formTitle": "Select Target Repository", "formDescription": "Enter the repository name manually" }
+      }
     }
   ],
   "connections": {
+    "Generate Task ID & Envelope": {
+      "main": [[{ "node": "Store Task Envelope (Blob)", "type": "main", "index": 0 }, { "node": "Notify Teams", "type": "main", "index": 0 }]]
+    },
+    "Store Task Envelope (Blob)": {
+      "main": [[{ "node": "Merge Results", "type": "main", "index": 0 }]]
+    },
+    "Notify Teams": {
+      "main": [[{ "node": "Merge Results", "type": "main", "index": 1 }]]
+    },
+    "Merge Results": {
+      "main": [[{ "node": "Prepare Response", "type": "main", "index": 0 }]]
+    },
     "Feature Request Form": {
+      "main": [[{ "node": "Read Cached Repos", "type": "main", "index": 0 }]]
+    },
+    "Prepare Response": {
+      "main": [[{ "node": "Start Orchestration", "type": "main", "index": 0 }]]
+    },
+    "Read Cached Repos": {
+      "main": [[{ "node": "Transform Repo Response", "type": "main", "index": 0 }]]
+    },
+    "Transform Repo Response": {
+      "main": [[{ "node": "Check Repos Loaded", "type": "main", "index": 0 }]]
+    },
+    "Check Repos Loaded": {
       "main": [
-        [{ "node": "Generate Task ID", "type": "main", "index": 0 }]
+        [{ "node": "Select Repository (Dropdown)", "type": "main", "index": 0 }],
+        [{ "node": "Select Repository (Fallback)", "type": "main", "index": 0 }]
       ]
     },
-    "Generate Task ID": {
-      "main": [
-        [{ "node": "Validate Repository URL", "type": "main", "index": 0 }]
-      ]
+    "Select Repository (Dropdown)": {
+      "main": [[{ "node": "Merge Form Results", "type": "main", "index": 0 }]]
     },
-    "Validate Repository URL": {
-      "main": [
-        [{ "node": "Get Azure Token", "type": "main", "index": 0 }]
-      ]
+    "Select Repository (Fallback)": {
+      "main": [[{ "node": "Merge Form Results", "type": "main", "index": 1 }]]
     },
-    "Get Azure Token": {
-      "main": [
-        [{ "node": "Parse Azure Token", "type": "main", "index": 0 }]
-      ]
-    },
-    "Parse Azure Token": {
-      "main": [
-        [{ "node": "List Recent Tasks", "type": "main", "index": 0 }]
-      ]
-    },
-    "List Recent Tasks": {
-      "main": [
-        [{ "node": "Check Duplicates & Rate Limits", "type": "main", "index": 0 }]
-      ]
-    },
-    "Check Duplicates & Rate Limits": {
-      "main": [
-        [{ "node": "Route Validation Result", "type": "main", "index": 0 }]
-      ]
-    },
-    "Route Validation Result": {
-      "main": [
-        [{ "node": "Rate Limit Response", "type": "main", "index": 0 }],
-        [{ "node": "Duplicate Response", "type": "main", "index": 0 }],
-        [{ "node": "Scan & Redact Sensitive Data", "type": "main", "index": 0 }]
-      ]
-    },
-    "Scan & Redact Sensitive Data": {
-      "main": [
-        [{ "node": "Build Task Envelope", "type": "main", "index": 0 }]
-      ]
-    },
-    "Build Task Envelope": {
-      "main": [
-        [{ "node": "Create Task Envelope Blob", "type": "main", "index": 0 }]
-      ]
-    },
-    "Create Task Envelope Blob": {
-      "main": [
-        [{ "node": "Verify Blob Created", "type": "main", "index": 0 }]
-      ]
-    },
-    "Verify Blob Created": {
-      "main": [
-        [
-          { "node": "Prepare Notification Payload", "type": "main", "index": 0 },
-          { "node": "Success Response", "type": "main", "index": 0 }
-        ]
-      ]
-    },
-    "Prepare Notification Payload": {
-      "main": [
-        [{ "node": "Send Task Created Notification", "type": "main", "index": 0 }]
-      ]
-    },
-    "Send Task Created Notification": {
-      "main": [
-        [{ "node": "Prepare Orchestrator Trigger", "type": "main", "index": 0 }]
-      ]
-    },
-    "Prepare Orchestrator Trigger": {
-      "main": [
-        [{ "node": "Trigger Master Orchestrator", "type": "main", "index": 0 }]
-      ]
-    },
-    "Error Trigger": {
-      "main": [
-        [{ "node": "Format Validation Error", "type": "main", "index": 0 }]
-      ]
-    },
-    "Format Validation Error": {
-      "main": [
-        [{ "node": "Validation Error Response", "type": "main", "index": 0 }]
-      ]
+    "Merge Form Results": {
+      "main": [[{ "node": "Generate Task ID & Envelope", "type": "main", "index": 0 }]]
     }
   },
   "settings": {
     "executionOrder": "v1",
-    "saveManualExecutions": true,
-    "callerPolicy": "any",
-    "errorWorkflow": ""
+    "callerPolicy": "workflowsFromSameOwner"
   },
-  "staticData": null,
-  "tags": [
-    { "name": "stage-1" },
-    { "name": "entry-point" },
-    { "name": "autonomous-agents" }
-  ],
-  "pinData": {},
   "meta": {
-    "templateId": "feature-request-form",
-    "instanceId": "autonomous-dev-team"
+    "description": "Two-step feature request form with cached repository dropdown. Step 1 collects feature details. Step 2 reads repos from Azure Blob cache (populated by hourly sync workflow), with fallback to text input if cache is unavailable.",
+    "version": "3.0.2",
+    "feature": "012-dynamic-repo-dropdown",
+    "architecture": "cached-blob"
   }
 }
