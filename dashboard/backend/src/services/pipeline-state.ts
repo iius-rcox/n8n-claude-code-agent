@@ -199,10 +199,16 @@ export class PipelineStateService {
    */
   async getTaskDetail(taskId: string): Promise<TaskDetailResponse | null> {
     try {
-      const envelopePath = `${taskId}/task-envelope.yml`;
-      const content = await this.blobStorageService.getBlobContent('agent-state', envelopePath);
+      // Try YAML first, then JSON (matching getTaskEnvelopes behavior)
+      let envelopePath = `${taskId}/task-envelope.yml`;
+      let content = await this.blobStorageService.getBlobContent('agent-state', envelopePath).catch(() => null);
 
-      if (!content.content) {
+      if (!content?.content) {
+        envelopePath = `${taskId}/task-envelope.json`;
+        content = await this.blobStorageService.getBlobContent('agent-state', envelopePath).catch(() => null);
+      }
+
+      if (!content?.content) {
         return null;
       }
 
@@ -268,10 +274,16 @@ export class PipelineStateService {
     reason: string = 'Cancelled by user'
   ): Promise<{ success: boolean; message: string }> {
     try {
-      const envelopePath = `${taskId}/task-envelope.yml`;
-      const content = await this.blobStorageService.getBlobContent('agent-state', envelopePath);
+      // Try YAML first, then JSON (matching getTaskEnvelopes behavior)
+      let envelopePath = `${taskId}/task-envelope.yml`;
+      let content = await this.blobStorageService.getBlobContent('agent-state', envelopePath).catch(() => null);
 
-      if (!content.content) {
+      if (!content?.content) {
+        envelopePath = `${taskId}/task-envelope.json`;
+        content = await this.blobStorageService.getBlobContent('agent-state', envelopePath).catch(() => null);
+      }
+
+      if (!content?.content) {
         return { success: false, message: `Task ${taskId} not found` };
       }
 
@@ -310,13 +322,17 @@ export class PipelineStateService {
         outcome: 'cancelled',
       });
 
-      // Save back to blob storage
-      const yamlContent = stringify(updatedEnvelope);
+      // Save back to blob storage in same format as original
+      const isJson = envelopePath.endsWith('.json');
+      const serializedContent = isJson
+        ? JSON.stringify(updatedEnvelope, null, 2)
+        : stringify(updatedEnvelope);
+      const contentType = isJson ? 'application/json' : 'text/yaml';
       await this.blobStorageService.uploadBlob(
         'agent-state',
         envelopePath,
-        yamlContent,
-        'text/yaml'
+        serializedContent,
+        contentType
       );
 
       return { success: true, message: `Task ${taskId} cancelled successfully` };
