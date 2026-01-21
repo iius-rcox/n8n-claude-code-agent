@@ -104,17 +104,36 @@ export function TokenRefresh({ isAuthenticated = false }: TokenRefreshProps) {
     setCredentialsJson('');
   };
 
+  // Sanitize token: remove newlines, carriage returns, tabs, and all whitespace
+  const sanitizeToken = (input: string): { sanitized: string; hadIssues: boolean } => {
+    const original = input;
+    const sanitized = input
+      .replace(/[\r\n\t]/g, '')  // Remove newlines, carriage returns, tabs
+      .replace(/\s+/g, '')       // Remove all whitespace
+      .trim();
+    return {
+      sanitized,
+      hadIssues: sanitized !== original.trim(),
+    };
+  };
+
   // Handle long-lived OAuth token push
   const handlePushOAuthToken = async () => {
-    const token = oauthToken.trim();
+    const { sanitized: token, hadIssues } = sanitizeToken(oauthToken);
+
     if (!token) {
       setError('OAuth token is required');
       return;
     }
 
+    // Log if we cleaned up the token
+    if (hadIssues) {
+      console.log('Token sanitized: removed newlines/whitespace');
+    }
+
     // Basic validation - token should start with expected prefix
-    if (!token.startsWith('sk-ant-') && !token.includes('oauth')) {
-      setError('Invalid token format. Token should be the output from "claude setup-token"');
+    if (!token.startsWith('sk-ant-')) {
+      setError('Invalid token format. Token should start with "sk-ant-" (from "claude setup-token")');
       return;
     }
 
@@ -123,7 +142,8 @@ export function TokenRefresh({ isAuthenticated = false }: TokenRefreshProps) {
 
     try {
       await pushOAuthToken({ token });
-      setSuccess('Long-lived token configured successfully! The agent will restart automatically.');
+      const cleanupNote = hadIssues ? ' (cleaned up extra whitespace/newlines)' : '';
+      setSuccess(`Long-lived token configured successfully!${cleanupNote} The agent will restart automatically.`);
       setOauthToken('');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to push OAuth token');
