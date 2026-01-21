@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -39,6 +40,7 @@ import {
   Filter,
   Terminal,
   ArrowRight,
+  Zap,
 } from 'lucide-react';
 
 // Status badge variants
@@ -125,63 +127,131 @@ function formatRelativeTime(timestamp: string): string {
   return 'just now';
 }
 
+// Timeline connector component
+function TimelineConnector({ isLast, status }: { isLast: boolean; status: N8nExecutionStatus }) {
+  const getConnectorColor = () => {
+    switch (status) {
+      case 'running': return 'bg-cyan-500';
+      case 'success': return 'bg-green-500';
+      case 'error': return 'bg-red-500';
+      default: return 'bg-muted-foreground/30';
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center w-8">
+      {/* Dot */}
+      <div className="relative">
+        <div className={`w-3 h-3 rounded-full ${getConnectorColor()} z-10`} />
+        {status === 'running' && (
+          <motion.div
+            className="absolute inset-0 rounded-full bg-cyan-500"
+            animate={{ scale: [1, 1.8, 1], opacity: [0.8, 0, 0.8] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          />
+        )}
+      </div>
+      {/* Line */}
+      {!isLast && (
+        <div className="w-px flex-1 bg-border/50 min-h-[40px]" />
+      )}
+    </div>
+  );
+}
+
 // Execution Row Component
 function ExecutionRow({
   execution,
   onClick,
+  isLast,
 }: {
   execution: N8nExecution;
   onClick: () => void;
+  isLast?: boolean;
 }) {
   const statusInfo = getStatusBadge(execution.status);
 
   return (
-    <div
-      className="flex items-center gap-4 py-3 px-4 border-b last:border-0 hover:bg-muted/50 cursor-pointer transition-colors"
-      onClick={onClick}
+    <motion.div
+      className="flex items-stretch gap-3 group"
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.3 }}
     >
-      {/* Status Indicator */}
-      <div className={`w-2 h-2 rounded-full ${statusInfo.color}`} />
+      {/* Timeline connector */}
+      <TimelineConnector isLast={!!isLast} status={execution.status} />
 
-      {/* Workflow Name */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <Workflow className="h-4 w-4 text-muted-foreground" />
-          <span className="font-medium truncate">{execution.workflowName}</span>
+      {/* Execution card */}
+      <motion.div
+        className={`
+          flex-1 p-3 rounded-lg border cursor-pointer mb-2
+          bg-card/50 backdrop-blur-sm
+          hover:bg-card hover:shadow-md
+          transition-all duration-200
+          ${execution.status === 'running' ? 'border-cyan-500/30 ring-1 ring-cyan-500/20' : 'border-border/50'}
+          ${execution.status === 'error' ? 'border-red-500/30' : ''}
+        `}
+        onClick={onClick}
+        whileHover={{ scale: 1.01, x: 4 }}
+        whileTap={{ scale: 0.99 }}
+      >
+        <div className="flex items-center gap-4">
+          {/* Workflow info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <Workflow className="h-4 w-4 text-cyan-400" />
+              <span className="font-medium truncate">{execution.workflowName}</span>
+              {execution.status === 'running' && (
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
+                >
+                  <Zap className="h-3 w-3 text-cyan-400" />
+                </motion.div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {execution.taskId && (
+                <span className="font-mono bg-muted/50 px-1.5 py-0.5 rounded">
+                  {execution.taskId}
+                </span>
+              )}
+              {execution.phase && (
+                <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">
+                  {execution.phase}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Status indicator */}
+          <div className={`
+            flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium
+            ${execution.status === 'running' ? 'bg-cyan-500/10 text-cyan-400' : ''}
+            ${execution.status === 'success' ? 'bg-green-500/10 text-green-400' : ''}
+            ${execution.status === 'error' ? 'bg-red-500/10 text-red-400' : ''}
+            ${execution.status === 'waiting' ? 'bg-yellow-500/10 text-yellow-400' : ''}
+            ${execution.status === 'canceled' ? 'bg-muted text-muted-foreground' : ''}
+          `}>
+            {statusInfo.icon}
+            {statusInfo.label}
+          </div>
+
+          {/* Duration */}
+          <div className="text-xs font-mono text-muted-foreground w-16 text-right">
+            {formatDuration(execution.durationMs)}
+          </div>
+
+          {/* Time */}
+          <div className="text-xs text-muted-foreground w-20 text-right">
+            {formatRelativeTime(execution.startedAt)}
+          </div>
+
+          {/* Expand indicator */}
+          <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
-        <div className="text-xs text-muted-foreground mt-1">
-          {execution.taskId && (
-            <span className="mr-2">
-              Task: <span className="font-mono">{execution.taskId}</span>
-            </span>
-          )}
-          {execution.phase && (
-            <Badge variant="outline" className="text-xs">
-              {execution.phase}
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      {/* Status Badge */}
-      <Badge variant={statusInfo.variant} className="gap-1">
-        {statusInfo.icon}
-        {statusInfo.label}
-      </Badge>
-
-      {/* Duration */}
-      <div className="text-sm text-muted-foreground w-20 text-right">
-        {formatDuration(execution.durationMs)}
-      </div>
-
-      {/* Time */}
-      <div className="text-sm text-muted-foreground w-24 text-right">
-        {formatRelativeTime(execution.startedAt)}
-      </div>
-
-      {/* Expand Arrow */}
-      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -516,9 +586,12 @@ export function ExecutionFeed() {
 
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // Count running executions
+  const runningCount = executions?.executions.filter(e => e.status === 'running').length || 0;
+
   if (isLoading && !executions) {
     return (
-      <Card>
+      <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
         <CardHeader>
           <Skeleton className="h-6 w-32" />
           <Skeleton className="h-4 w-48 mt-1" />
@@ -534,29 +607,72 @@ export function ExecutionFeed() {
 
   return (
     <>
-      <Card>
+      <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
         <CardHeader
-          className={isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''}
+          className={`${isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''} border-b border-border/30`}
           onClick={() => isCollapsed && setIsCollapsed(false)}
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {isCollapsed ? (
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               ) : (
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
               )}
-              <Play className="h-5 w-5" />
-              <CardTitle className="flex items-center gap-2">
-                n8n Executions
-                {isCollapsed && executions && (
-                  <Badge variant="secondary">{executions.total} executions</Badge>
+              <div className="relative">
+                <Play className="h-5 w-5 text-orange-400" />
+                {runningCount > 0 && (
+                  <motion.div
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-cyan-500 rounded-full"
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                  />
                 )}
-              </CardTitle>
+              </div>
+              <div>
+                <CardTitle className="flex items-center gap-3 text-base">
+                  <span>n8n Executions</span>
+                  {isCollapsed && executions && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-muted text-muted-foreground">
+                        {executions.total}
+                      </span>
+                      {runningCount > 0 && (
+                        <motion.span
+                          className="px-2 py-0.5 rounded-full text-xs font-mono bg-cyan-500/20 text-cyan-400"
+                          animate={{ opacity: [1, 0.7, 1] }}
+                          transition={{ duration: 1, repeat: Infinity }}
+                        >
+                          {runningCount} running
+                        </motion.span>
+                      )}
+                    </div>
+                  )}
+                </CardTitle>
+                {!isCollapsed && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Real-time timeline of workflow executions
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* Auto-refresh indicator */}
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <motion.div
+                  className="w-1.5 h-1.5 rounded-full bg-green-500"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+                <span className="hidden sm:inline">Auto-refresh</span>
+              </div>
               {!isCollapsed && (
-                <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsCollapsed(true)}
+                  className="text-xs hover:bg-muted"
+                >
                   Collapse
                 </Button>
               )}
@@ -568,16 +684,12 @@ export function ExecutionFeed() {
                   refresh();
                 }}
                 disabled={isLoading}
+                className="hover:bg-muted"
               >
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>
           </div>
-          <CardDescription>
-            {isCollapsed
-              ? 'Click to expand execution feed'
-              : 'Real-time feed of n8n workflow executions'}
-          </CardDescription>
         </CardHeader>
 
         {!isCollapsed && (
@@ -609,39 +721,62 @@ export function ExecutionFeed() {
                   onFiltersChange={setFilters}
                 />
 
-                {/* Execution List */}
-                <div className="border rounded-lg">
+                {/* Timeline Execution List */}
+                <div className="py-4">
                   {executions.executions.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground">
-                      <Play className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                      <p>No executions found</p>
-                    </div>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="flex flex-col items-center justify-center py-12 text-muted-foreground"
+                    >
+                      <Play className="h-12 w-12 mb-3 opacity-20" />
+                      <p className="text-sm">No executions found</p>
+                      <p className="text-xs mt-1">Workflows will appear here when they run</p>
+                    </motion.div>
                   ) : (
-                    <>
-                      {executions.executions.map((execution) => (
+                    <AnimatePresence mode="popLayout">
+                      {executions.executions.map((execution, index) => (
                         <ExecutionRow
                           key={execution.id}
                           execution={execution}
                           onClick={() => selectExecution(execution.id)}
+                          isLast={index === executions.executions.length - 1}
                         />
                       ))}
-                    </>
+                    </AnimatePresence>
                   )}
                 </div>
 
                 {/* Load More */}
                 {executions.hasMore && (
-                  <div className="text-center mt-4">
-                    <Button variant="outline" size="sm" onClick={loadMore}>
-                      Load more
+                  <div className="text-center py-4 border-t border-border/30">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={loadMore}
+                      className="border-border/50 hover:bg-muted"
+                    >
+                      Load more executions
                     </Button>
                   </div>
                 )}
 
-                {/* Footer */}
-                <div className="flex items-center justify-between mt-4 text-xs text-muted-foreground">
-                  <span>Showing {executions.executions.length} of {executions.total} executions</span>
-                  <span>Auto-refreshes every 10s</span>
+                {/* Footer Stats */}
+                <div className="flex items-center justify-between px-2 py-3 border-t border-border/30 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-4">
+                    <span>
+                      Showing <span className="font-mono">{executions.executions.length}</span> of <span className="font-mono">{executions.total}</span>
+                    </span>
+                    {runningCount > 0 && (
+                      <span className="text-cyan-400">
+                        <span className="font-mono">{runningCount}</span> running
+                      </span>
+                    )}
+                  </div>
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="h-3 w-3" />
+                    10s refresh
+                  </span>
                 </div>
               </>
             )}

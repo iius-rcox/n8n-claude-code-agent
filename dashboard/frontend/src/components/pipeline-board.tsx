@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -36,16 +37,100 @@ import {
   Ban,
   Wifi,
   WifiOff,
+  Inbox,
+  Lightbulb,
+  Code2,
+  TestTube,
+  Eye,
+  Rocket,
+  ArrowRight,
 } from 'lucide-react';
 
-// Phase colors for the Kanban columns
-const PHASE_COLORS: Record<PipelinePhase, string> = {
-  intake: 'border-t-blue-500',
-  planning: 'border-t-purple-500',
-  implementation: 'border-t-green-500',
-  verification: 'border-t-yellow-500',
-  review: 'border-t-orange-500',
-  release: 'border-t-emerald-500',
+// Phase configuration with colors, icons, and styling
+const PHASE_CONFIG: Record<PipelinePhase, {
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  glowColor: string;
+  icon: React.ReactNode;
+  gradient: string;
+}> = {
+  intake: {
+    color: 'text-blue-400',
+    bgColor: 'bg-blue-500/10',
+    borderColor: 'border-blue-500/30',
+    glowColor: 'shadow-blue-500/20',
+    icon: <Inbox className="h-4 w-4" />,
+    gradient: 'from-blue-500/20 to-blue-600/5',
+  },
+  planning: {
+    color: 'text-purple-400',
+    bgColor: 'bg-purple-500/10',
+    borderColor: 'border-purple-500/30',
+    glowColor: 'shadow-purple-500/20',
+    icon: <Lightbulb className="h-4 w-4" />,
+    gradient: 'from-purple-500/20 to-purple-600/5',
+  },
+  implementation: {
+    color: 'text-green-400',
+    bgColor: 'bg-green-500/10',
+    borderColor: 'border-green-500/30',
+    glowColor: 'shadow-green-500/20',
+    icon: <Code2 className="h-4 w-4" />,
+    gradient: 'from-green-500/20 to-green-600/5',
+  },
+  verification: {
+    color: 'text-yellow-400',
+    bgColor: 'bg-yellow-500/10',
+    borderColor: 'border-yellow-500/30',
+    glowColor: 'shadow-yellow-500/20',
+    icon: <TestTube className="h-4 w-4" />,
+    gradient: 'from-yellow-500/20 to-yellow-600/5',
+  },
+  review: {
+    color: 'text-orange-400',
+    bgColor: 'bg-orange-500/10',
+    borderColor: 'border-orange-500/30',
+    glowColor: 'shadow-orange-500/20',
+    icon: <Eye className="h-4 w-4" />,
+    gradient: 'from-orange-500/20 to-orange-600/5',
+  },
+  release: {
+    color: 'text-emerald-400',
+    bgColor: 'bg-emerald-500/10',
+    borderColor: 'border-emerald-500/30',
+    glowColor: 'shadow-emerald-500/20',
+    icon: <Rocket className="h-4 w-4" />,
+    gradient: 'from-emerald-500/20 to-emerald-600/5',
+  },
+};
+
+// Animation variants
+const cardVariants = {
+  hidden: { opacity: 0, y: 20, scale: 0.95 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.3, ease: 'easeOut' as const }
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.95,
+    transition: { duration: 0.2 }
+  },
+};
+
+const pulseVariants = {
+  pulse: {
+    scale: [1, 1.05, 1],
+    opacity: [0.7, 1, 0.7],
+    transition: {
+      duration: 2,
+      repeat: Infinity,
+      ease: 'easeInOut' as const,
+    },
+  },
 };
 
 // Status badge variants
@@ -105,64 +190,172 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
+// Visual Status Indicator Component
+function StatusIndicator({ status, isStuck }: { status: TaskStatus; isStuck: boolean }) {
+  const getStatusColor = () => {
+    if (isStuck) return 'bg-yellow-500';
+    switch (status) {
+      case 'in_progress':
+        return 'bg-cyan-500';
+      case 'completed':
+        return 'bg-green-500';
+      case 'failed':
+        return 'bg-red-500';
+      case 'paused':
+        return 'bg-gray-500';
+      case 'waiting_human':
+        return 'bg-purple-500';
+      case 'cancelled':
+        return 'bg-orange-500';
+      default:
+        return 'bg-muted-foreground';
+    }
+  };
+
+  const shouldPulse = status === 'in_progress' && !isStuck;
+
+  return (
+    <div className="relative">
+      <div className={`w-2 h-2 rounded-full ${getStatusColor()}`} />
+      {shouldPulse && (
+        <motion.div
+          className={`absolute inset-0 w-2 h-2 rounded-full ${getStatusColor()}`}
+          variants={pulseVariants}
+          animate="pulse"
+        />
+      )}
+    </div>
+  );
+}
+
 // Task Card Component
 function TaskCard({
   task,
   onClick,
+  phase,
 }: {
   task: PipelineTask;
   onClick: () => void;
+  phase: PipelinePhase;
 }) {
   const statusInfo = getStatusBadge(task.status);
   const priorityInfo = getPriorityBadge(task.priority);
+  const phaseConfig = PHASE_CONFIG[phase];
 
   return (
-    <div
-      className={`p-3 bg-card rounded-lg border shadow-sm cursor-pointer hover:shadow-md transition-shadow ${
-        task.isStuck ? 'border-yellow-500 bg-yellow-50/50 dark:bg-yellow-950/20' : ''
-      }`}
+    <motion.div
+      variants={cardVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      layout
+      className={`
+        relative p-3 rounded-lg border cursor-pointer
+        bg-card/80 backdrop-blur-sm
+        hover:bg-card hover:shadow-lg hover:shadow-${phase === 'implementation' ? 'green' : 'cyan'}-500/10
+        transition-all duration-200
+        ${task.isStuck ? 'border-yellow-500/50 ring-1 ring-yellow-500/30' : 'border-border/50'}
+      `}
       onClick={onClick}
+      whileHover={{ scale: 1.02, y: -2 }}
+      whileTap={{ scale: 0.98 }}
     >
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate" title={task.title}>
-            {task.title}
-          </p>
-          <p className="text-xs text-muted-foreground">{task.taskId}</p>
-        </div>
-        {task.isStuck && (
-          <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />
-        )}
-      </div>
+      {/* Stuck warning glow */}
+      {task.isStuck && (
+        <div className="absolute inset-0 rounded-lg bg-yellow-500/5 animate-pulse" />
+      )}
 
-      <div className="flex flex-wrap gap-1 mb-2">
-        <Badge variant={statusInfo.variant} className="text-xs gap-1">
-          {statusInfo.icon}
-          {statusInfo.label}
-        </Badge>
-        {priorityInfo && (
-          <Badge variant={priorityInfo.variant} className="text-xs">
-            {priorityInfo.label}
-          </Badge>
-        )}
-      </div>
-
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <div className="flex items-center gap-1">
-          <Clock className="h-3 w-3" />
-          {formatDuration(task.timeInPhase)}
+      <div className="relative">
+        {/* Header with status indicator */}
+        <div className="flex items-start gap-2 mb-2">
+          <StatusIndicator status={task.status} isStuck={task.isStuck} />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate leading-tight" title={task.title}>
+              {task.title}
+            </p>
+            <p className="text-xs text-muted-foreground font-mono mt-0.5">{task.taskId}</p>
+          </div>
+          {task.isStuck && (
+            <motion.div
+              animate={{ rotate: [0, 5, -5, 0] }}
+              transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
+            >
+              <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />
+            </motion.div>
+          )}
         </div>
-        {task.agent && (
+
+        {/* Status and priority badges */}
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          <div className={`
+            inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium
+            ${phaseConfig.bgColor} ${phaseConfig.color}
+          `}>
+            {statusInfo.icon}
+            {statusInfo.label}
+          </div>
+          {priorityInfo && priorityInfo.label === 'Critical' && (
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400">
+              {priorityInfo.label}
+            </div>
+          )}
+          {priorityInfo && priorityInfo.label === 'High' && (
+            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400">
+              {priorityInfo.label}
+            </div>
+          )}
+        </div>
+
+        {/* Footer metrics */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
-            <User className="h-3 w-3" />
-            {task.agent}
+            <Clock className="h-3 w-3" />
+            <span className="font-mono">{formatDuration(task.timeInPhase)}</span>
           </div>
-        )}
-        {task.retryCount > 0 && (
-          <div className="flex items-center gap-1 text-yellow-500">
-            <RefreshCw className="h-3 w-3" />
-            {task.retryCount}
-          </div>
+          {task.agent && (
+            <div className="flex items-center gap-1">
+              <User className="h-3 w-3" />
+              <span className="truncate max-w-[60px]">{task.agent}</span>
+            </div>
+          )}
+          {task.retryCount > 0 && (
+            <div className="flex items-center gap-1 text-yellow-500">
+              <RefreshCw className="h-3 w-3" />
+              <span>{task.retryCount}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Pipeline Connector Component
+function PipelineConnector({ hasActivity }: { hasActivity: boolean }) {
+  return (
+    <div className="flex items-center justify-center w-8 flex-shrink-0">
+      <div className="relative h-full flex flex-col items-center justify-center">
+        {/* Connector line */}
+        <div className="w-px h-full bg-border/30 absolute" />
+        {/* Arrow */}
+        <div className="relative z-10 bg-background p-1">
+          <ArrowRight className="h-4 w-4 text-muted-foreground/50" />
+        </div>
+        {/* Animated flow dot when active */}
+        {hasActivity && (
+          <motion.div
+            className="absolute w-1.5 h-1.5 rounded-full bg-cyan-500"
+            initial={{ y: -40, opacity: 0 }}
+            animate={{
+              y: [- 40, 40],
+              opacity: [0, 1, 1, 0],
+            }}
+            transition={{
+              duration: 2,
+              repeat: Infinity,
+              ease: 'linear',
+            }}
+          />
         )}
       </div>
     </div>
@@ -173,42 +366,111 @@ function TaskCard({
 function PhaseColumnComponent({
   column,
   onTaskClick,
+  isLast,
 }: {
   column: PhaseColumn;
   onTaskClick: (taskId: string) => void;
+  isLast?: boolean;
 }) {
   const stuckCount = column.tasks.filter((t) => t.isStuck).length;
+  const activeCount = column.tasks.filter((t) => t.status === 'in_progress').length;
+  const phaseConfig = PHASE_CONFIG[column.phase];
 
   return (
-    <div className={`flex-1 min-w-[200px] max-w-[280px] border-t-4 ${PHASE_COLORS[column.phase]}`}>
-      <Card className="h-full">
-        <CardHeader className="py-3 px-4">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-sm font-medium">{column.displayName}</CardTitle>
-            <div className="flex items-center gap-1">
+    <>
+      <motion.div
+        className="flex-1 min-w-[220px] max-w-[280px]"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        {/* Phase Header */}
+        <div className={`
+          relative rounded-t-lg px-4 py-3
+          bg-gradient-to-b ${phaseConfig.gradient}
+          border-t-2 ${phaseConfig.borderColor.replace('border-', 'border-t-').replace('/30', '')}
+        `}>
+          {/* Active indicator glow */}
+          {activeCount > 0 && (
+            <motion.div
+              className={`absolute inset-0 rounded-t-lg ${phaseConfig.bgColor}`}
+              animate={{ opacity: [0.3, 0.6, 0.3] }}
+              transition={{ duration: 2, repeat: Infinity }}
+            />
+          )}
+
+          <div className="relative flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className={`${phaseConfig.color}`}>
+                {phaseConfig.icon}
+              </div>
+              <div>
+                <h3 className={`text-sm font-semibold ${phaseConfig.color}`}>
+                  {column.displayName}
+                </h3>
+                <p className="text-xs text-muted-foreground">{column.agent}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
               {stuckCount > 0 && (
-                <Badge variant="destructive" className="text-xs">
-                  {stuckCount} stuck
-                </Badge>
+                <motion.div
+                  className="px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-500/20 text-yellow-400"
+                  animate={{ scale: [1, 1.05, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  {stuckCount}!
+                </motion.div>
               )}
-              <Badge variant="secondary" className="text-xs">
+              <div className={`
+                px-2 py-0.5 rounded-full text-xs font-mono font-medium
+                ${phaseConfig.bgColor} ${phaseConfig.color}
+              `}>
                 {column.tasks.length}
-              </Badge>
+              </div>
             </div>
           </div>
-          <CardDescription className="text-xs">Agent: {column.agent}</CardDescription>
-        </CardHeader>
-        <CardContent className="px-3 pb-3 pt-0 space-y-2 overflow-y-auto max-h-[500px]">
-          {column.tasks.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No tasks</p>
-          ) : (
-            column.tasks.map((task) => (
-              <TaskCard key={task.taskId} task={task} onClick={() => onTaskClick(task.taskId)} />
-            ))
-          )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+
+        {/* Tasks Container */}
+        <div className={`
+          rounded-b-lg border border-t-0 ${phaseConfig.borderColor}
+          bg-card/30 backdrop-blur-sm
+          min-h-[200px] max-h-[500px] overflow-y-auto
+        `}>
+          <div className="p-2 space-y-2">
+            <AnimatePresence mode="popLayout">
+              {column.tasks.length === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex flex-col items-center justify-center py-8 text-muted-foreground"
+                >
+                  <div className={`${phaseConfig.color} opacity-20 mb-2`}>
+                    {phaseConfig.icon}
+                  </div>
+                  <p className="text-xs">No tasks</p>
+                </motion.div>
+              ) : (
+                column.tasks.map((task) => (
+                  <TaskCard
+                    key={task.taskId}
+                    task={task}
+                    onClick={() => onTaskClick(task.taskId)}
+                    phase={column.phase}
+                  />
+                ))
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Connector to next phase */}
+      {!isLast && (
+        <PipelineConnector hasActivity={activeCount > 0} />
+      )}
+    </>
   );
 }
 
@@ -486,48 +748,91 @@ export function PipelineBoard() {
 
   return (
     <>
-      <Card>
+      <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
         <CardHeader
-          className={isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''}
+          className={`${isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''} border-b border-border/30`}
           onClick={() => isCollapsed && setIsCollapsed(false)}
         >
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {isCollapsed ? (
                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
               ) : (
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
               )}
-              <ClipboardList className="h-5 w-5" />
-              <CardTitle className="flex items-center gap-2">
-                Task Pipeline
-                {isCollapsed && pipeline && (
-                  <>
-                    <Badge variant="secondary">{pipeline.summary.totalTasks} tasks</Badge>
-                    {pipeline.summary.stuckTasks > 0 && (
-                      <Badge variant="destructive">{pipeline.summary.stuckTasks} stuck</Badge>
-                    )}
-                  </>
+              <div className="relative">
+                <ClipboardList className="h-5 w-5 text-cyan-400" />
+                {pipeline && pipeline.summary.activeTasks > 0 && (
+                  <motion.div
+                    className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-green-500 rounded-full"
+                    animate={{ scale: [1, 1.2, 1] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  />
                 )}
-              </CardTitle>
+              </div>
+              <div>
+                <CardTitle className="flex items-center gap-3 text-base">
+                  <span>Task Pipeline</span>
+                  {isCollapsed && pipeline && (
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-mono bg-muted text-muted-foreground">
+                        {pipeline.summary.totalTasks}
+                      </span>
+                      {pipeline.summary.stuckTasks > 0 && (
+                        <motion.span
+                          className="px-2 py-0.5 rounded-full text-xs font-mono bg-yellow-500/20 text-yellow-400"
+                          animate={{ opacity: [1, 0.7, 1] }}
+                          transition={{ duration: 1, repeat: Infinity }}
+                        >
+                          {pipeline.summary.stuckTasks} stuck
+                        </motion.span>
+                      )}
+                    </div>
+                  )}
+                </CardTitle>
+                {!isCollapsed && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Visual flow of tasks through development phases
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {/* Real-time connection indicator */}
               <div
-                className={`flex items-center gap-1 text-xs ${
-                  isSocketConnected ? 'text-green-500' : 'text-muted-foreground'
-                }`}
+                className={`
+                  flex items-center gap-1.5 px-2 py-1 rounded-full text-xs
+                  ${isSocketConnected
+                    ? 'bg-green-500/10 text-green-400'
+                    : 'bg-muted text-muted-foreground'
+                  }
+                `}
                 title={isSocketConnected ? 'Real-time updates active' : 'Connecting to real-time updates...'}
               >
                 {isSocketConnected ? (
-                  <Wifi className="h-3 w-3" />
+                  <>
+                    <motion.div
+                      className="w-1.5 h-1.5 rounded-full bg-green-500"
+                      animate={{ scale: [1, 1.3, 1] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    />
+                    <Wifi className="h-3 w-3" />
+                    <span className="hidden sm:inline font-medium">Live</span>
+                  </>
                 ) : (
-                  <WifiOff className="h-3 w-3" />
+                  <>
+                    <WifiOff className="h-3 w-3" />
+                    <span className="hidden sm:inline">Offline</span>
+                  </>
                 )}
-                <span className="hidden sm:inline">{isSocketConnected ? 'Live' : 'Offline'}</span>
               </div>
               {!isCollapsed && (
-                <Button variant="ghost" size="sm" onClick={() => setIsCollapsed(true)}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsCollapsed(true)}
+                  className="text-xs hover:bg-muted"
+                >
                   Collapse
                 </Button>
               )}
@@ -539,16 +844,12 @@ export function PipelineBoard() {
                   refresh();
                 }}
                 disabled={isLoading}
+                className="hover:bg-muted"
               >
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
             </div>
           </div>
-          <CardDescription>
-            {isCollapsed
-              ? 'Click to expand pipeline view'
-              : 'Kanban view of tasks flowing through development phases'}
-          </CardDescription>
         </CardHeader>
 
         {!isCollapsed && (
@@ -562,34 +863,62 @@ export function PipelineBoard() {
 
             {pipeline && (
               <>
-                {/* Summary Stats */}
-                <div className="flex items-center gap-4 mb-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Total:</span>{' '}
-                    <span className="font-medium">{pipeline.summary.totalTasks}</span>
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Active:</span>{' '}
-                    <span className="font-medium">{pipeline.summary.activeTasks}</span>
-                  </div>
-                  {pipeline.summary.stuckTasks > 0 && (
-                    <div className="text-yellow-500">
-                      <span>Stuck:</span>{' '}
-                      <span className="font-medium">{pipeline.summary.stuckTasks}</span>
+                {/* Summary Stats Bar */}
+                <div className="flex items-center justify-between gap-4 mb-6 px-2">
+                  <div className="flex items-center gap-4">
+                    {/* Total Tasks */}
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center">
+                        <span className="text-sm font-mono font-bold">{pipeline.summary.totalTasks}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">Total</span>
                     </div>
-                  )}
-                  <div className="text-xs text-muted-foreground ml-auto">
-                    Last updated: {new Date(pipeline.timestamp).toLocaleTimeString()}
+
+                    {/* Active Tasks */}
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-8 h-8 rounded-lg bg-cyan-500/10 flex items-center justify-center">
+                        <span className="text-sm font-mono font-bold text-cyan-400">{pipeline.summary.activeTasks}</span>
+                        {pipeline.summary.activeTasks > 0 && (
+                          <motion.div
+                            className="absolute inset-0 rounded-lg border border-cyan-500/30"
+                            animate={{ opacity: [0.3, 0.8, 0.3] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                          />
+                        )}
+                      </div>
+                      <span className="text-xs text-muted-foreground">Active</span>
+                    </div>
+
+                    {/* Stuck Tasks */}
+                    {pipeline.summary.stuckTasks > 0 && (
+                      <motion.div
+                        className="flex items-center gap-2"
+                        animate={{ x: [0, 2, 0] }}
+                        transition={{ duration: 0.5, repeat: Infinity, repeatDelay: 2 }}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-yellow-500/20 flex items-center justify-center">
+                          <span className="text-sm font-mono font-bold text-yellow-400">{pipeline.summary.stuckTasks}</span>
+                        </div>
+                        <span className="text-xs text-yellow-400">Stuck</span>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  {/* Timestamp */}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    <span className="font-mono">{new Date(pipeline.timestamp).toLocaleTimeString()}</span>
                   </div>
                 </div>
 
-                {/* Kanban Board */}
-                <div className="flex gap-4 overflow-x-auto pb-2">
-                  {pipeline.columns.map((column) => (
+                {/* Visual Pipeline Board */}
+                <div className="flex items-stretch gap-0 overflow-x-auto pb-4 pt-2">
+                  {pipeline.columns.map((column, index) => (
                     <PhaseColumnComponent
                       key={column.phase}
                       column={column}
                       onTaskClick={selectTask}
+                      isLast={index === pipeline.columns.length - 1}
                     />
                   ))}
                 </div>

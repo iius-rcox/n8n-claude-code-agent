@@ -1,5 +1,6 @@
 import { useMsal } from '@azure/msal-react';
 import { useEffect, useState, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { setMsalInstance, getAuthStatus } from '@/services/api';
 import { Button } from '@/components/ui/button';
 import { HealthPanel } from '@/components/health-panel';
@@ -10,6 +11,107 @@ import { CronJobPanel } from '@/components/cronjob-panel';
 import { PipelineBoard } from '@/components/pipeline-board';
 import { ExecutionFeed } from '@/components/execution-feed';
 import { StorageBrowser } from '@/components/storage-browser';
+import { useHealth } from '@/hooks/use-health';
+import { Activity, LogOut, Cpu } from 'lucide-react';
+
+// Health Ring Component for header
+function HealthRing() {
+  const { health, isLoading } = useHealth();
+
+  if (isLoading || !health) {
+    return (
+      <div className="w-10 h-10 rounded-full border-2 border-muted animate-pulse" />
+    );
+  }
+
+  const healthyCount = health.components.filter(c => c.status === 'healthy').length;
+  const totalCount = health.components.length;
+  const percentage = totalCount > 0 ? (healthyCount / totalCount) * 100 : 0;
+  const circumference = 2 * Math.PI * 16;
+  const strokeDasharray = `${(percentage / 100) * circumference} ${circumference}`;
+
+  const getColor = () => {
+    if (health.overall === 'healthy') return 'stroke-green-500';
+    if (health.overall === 'degraded') return 'stroke-yellow-500';
+    return 'stroke-red-500';
+  };
+
+  const getGlow = () => {
+    if (health.overall === 'healthy') return 'drop-shadow-[0_0_8px_rgba(34,197,94,0.5)]';
+    if (health.overall === 'degraded') return 'drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]';
+    return 'drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]';
+  };
+
+  return (
+    <div className="relative" title={`System Health: ${health.overall} (${healthyCount}/${totalCount})`}>
+      <svg className={`w-10 h-10 -rotate-90 ${getGlow()}`} viewBox="0 0 36 36">
+        {/* Background ring */}
+        <circle
+          cx="18"
+          cy="18"
+          r="16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="text-muted"
+        />
+        {/* Progress ring */}
+        <motion.circle
+          cx="18"
+          cy="18"
+          r="16"
+          fill="none"
+          strokeWidth="2"
+          strokeLinecap="round"
+          className={getColor()}
+          initial={{ strokeDasharray: `0 ${circumference}` }}
+          animate={{ strokeDasharray }}
+          transition={{ duration: 1, ease: 'easeOut' }}
+        />
+      </svg>
+      {/* Center icon */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Activity className={`w-4 h-4 ${health.overall === 'healthy' ? 'text-green-500' : health.overall === 'degraded' ? 'text-yellow-500' : 'text-red-500'}`} />
+      </div>
+    </div>
+  );
+}
+
+// Animation variants for staggered entrance
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.1,
+      delayChildren: 0.2,
+    },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.5,
+      ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number],
+    },
+  },
+};
+
+const headerVariants = {
+  hidden: { opacity: 0, y: -20 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.6,
+      ease: [0.25, 0.46, 0.45, 0.94] as [number, number, number, number],
+    },
+  },
+};
 
 export function Dashboard() {
   const { instance, accounts } = useMsal();
@@ -42,76 +144,120 @@ export function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-background bg-grid-pattern bg-noise">
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <motion.header
+        className="sticky top-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl"
+        variants={headerVariants}
+        initial="hidden"
+        animate="visible"
+      >
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                Claude Agent Operations
-              </h1>
-              <p className="text-sm text-gray-500">
-                Manage and monitor your Claude agent deployment
-              </p>
-            </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-gray-600">
-                {account?.name || account?.username}
-              </span>
-              <Button variant="outline" size="sm" onClick={handleLogout}>
-                Sign out
-              </Button>
+              {/* Logo/Icon */}
+              <div className="relative">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-600 flex items-center justify-center glow-cyan">
+                  <Cpu className="w-5 h-5 text-background" />
+                </div>
+                {/* Pulse indicator */}
+                <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500" />
+                </span>
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold text-foreground tracking-tight">
+                  Claude Agent <span className="text-cyan-400">Operations</span>
+                </h1>
+                <p className="text-xs text-muted-foreground font-mono">
+                  MISSION_CONTROL // v1.0
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-6">
+              {/* Health Ring */}
+              <HealthRing />
+
+              {/* User info */}
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <p className="text-sm font-medium text-foreground">
+                    {account?.name || account?.username}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Operator</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                  className="border-border/50 hover:border-cyan-500/50 hover:bg-cyan-500/10 transition-all"
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign out
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
+      <motion.main
+        className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8"
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+      >
         {/* Top Row: Health + Authentication */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <HealthPanel />
           <TokenRefresh isAuthenticated={isAuthenticated} />
-        </div>
+        </motion.div>
 
         {/* CronJob Panel */}
-        <div className="mb-6">
+        <motion.div variants={itemVariants} className="mb-6">
           <CronJobPanel />
-        </div>
+        </motion.div>
 
         {/* Task Pipeline - Kanban view of agent tasks */}
-        <div className="mb-6">
+        <motion.div variants={itemVariants} className="mb-6">
           <PipelineBoard />
-        </div>
+        </motion.div>
 
         {/* n8n Execution Feed - Real-time workflow executions */}
-        <div className="mb-6">
+        <motion.div variants={itemVariants} className="mb-6">
           <ExecutionFeed />
-        </div>
+        </motion.div>
 
         {/* Storage Browser - Azure Blob Storage */}
-        <div className="mb-6">
+        <motion.div variants={itemVariants} className="mb-6">
           <StorageBrowser />
-        </div>
+        </motion.div>
 
         {/* Full Width: Agent Executor */}
-        <div className="mb-6">
+        <motion.div variants={itemVariants} className="mb-6">
           <AgentExecutor />
-        </div>
+        </motion.div>
 
         {/* Full Width: Execution History */}
-        <div>
+        <motion.div variants={itemVariants}>
           <ExecutionHistory />
-        </div>
-      </main>
+        </motion.div>
+      </motion.main>
 
       {/* Footer */}
-      <footer className="bg-white border-t mt-auto">
+      <footer className="border-t border-border/50 bg-background/50 backdrop-blur-sm mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
-          <p className="text-sm text-gray-500 text-center">
-            Operations Dashboard v1.0.0 | II-US Operations Team
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground font-mono">
+              OPS_DASHBOARD // v1.0.0
+            </p>
+            <p className="text-xs text-muted-foreground">
+              II-US Operations Team
+            </p>
+          </div>
         </div>
       </footer>
     </div>
