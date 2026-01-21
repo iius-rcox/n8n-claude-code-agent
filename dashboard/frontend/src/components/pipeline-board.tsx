@@ -20,6 +20,7 @@ import {
   PipelinePhase,
   TaskDetailResponse,
 } from '@/services/api';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   RefreshCw,
   AlertTriangle,
@@ -44,6 +45,11 @@ import {
   Eye,
   Rocket,
   ArrowRight,
+  Copy,
+  Check,
+  Braces,
+  Info,
+  History,
 } from 'lucide-react';
 
 // Phase configuration with colors, icons, and styling
@@ -474,6 +480,145 @@ function PhaseColumnComponent({
   );
 }
 
+// JSON Syntax Highlighter Component
+function JsonSyntaxHighlight({ json }: { json: string }) {
+  const highlightJson = (text: string): React.ReactNode[] => {
+    const tokens: React.ReactNode[] = [];
+    let tokenKey = 0;
+
+    // Simple tokenizer for JSON
+    const regex = /("(?:[^"\\]|\\.)*")\s*:|("(?:[^"\\]|\\.)*")|(-?\d+\.?\d*(?:[eE][+-]?\d+)?)|(\btrue\b|\bfalse\b|\bnull\b)|([\[\]{}:,])|(\s+)/g;
+    let match;
+    let lastIndex = 0;
+
+    while ((match = regex.exec(text)) !== null) {
+      // Add any text before this match
+      if (match.index > lastIndex) {
+        tokens.push(<span key={tokenKey++}>{text.slice(lastIndex, match.index)}</span>);
+      }
+
+      const [, keyMatch, stringMatch, numberMatch, boolNullMatch, punctuation, whitespace] = match;
+
+      if (keyMatch) {
+        // Property key
+        tokens.push(
+          <span key={tokenKey++} className="text-cyan-400">{keyMatch.slice(0, -1)}</span>,
+          <span key={tokenKey++} className="text-muted-foreground">:</span>
+        );
+      } else if (stringMatch) {
+        // String value
+        tokens.push(<span key={tokenKey++} className="text-emerald-400">{stringMatch}</span>);
+      } else if (numberMatch) {
+        // Number
+        tokens.push(<span key={tokenKey++} className="text-amber-400">{numberMatch}</span>);
+      } else if (boolNullMatch) {
+        // Boolean or null
+        const color = boolNullMatch === 'null' ? 'text-gray-500' : 'text-purple-400';
+        tokens.push(<span key={tokenKey++} className={color}>{boolNullMatch}</span>);
+      } else if (punctuation) {
+        // Brackets, braces, colons, commas
+        tokens.push(<span key={tokenKey++} className="text-muted-foreground/70">{punctuation}</span>);
+      } else if (whitespace) {
+        tokens.push(<span key={tokenKey++}>{whitespace}</span>);
+      }
+
+      lastIndex = regex.lastIndex;
+    }
+
+    // Add any remaining text
+    if (lastIndex < text.length) {
+      tokens.push(<span key={tokenKey++}>{text.slice(lastIndex)}</span>);
+    }
+
+    return tokens;
+  };
+
+  return (
+    <pre className="text-sm leading-relaxed overflow-x-auto">
+      <code>{highlightJson(json)}</code>
+    </pre>
+  );
+}
+
+// Envelope Viewer Component
+function EnvelopeViewer({ envelope }: { envelope: Record<string, unknown> }) {
+  const [copied, setCopied] = useState(false);
+  const jsonString = JSON.stringify(envelope, null, 2);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(jsonString);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div className="relative">
+      {/* Header with copy button */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Braces className="h-3.5 w-3.5" />
+          <span className="font-mono">task-envelope.json</span>
+          <span className="text-muted-foreground/50">•</span>
+          <span>{(jsonString.length / 1024).toFixed(1)} KB</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handleCopy}
+          className="h-7 px-2 text-xs gap-1.5 hover:bg-cyan-500/10 hover:text-cyan-400 transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="text-emerald-400">Copied!</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              <span>Copy</span>
+            </>
+          )}
+        </Button>
+      </div>
+
+      {/* JSON viewer with syntax highlighting */}
+      <div className="relative rounded-lg border border-border/50 bg-[hsl(222,47%,5%)] overflow-hidden">
+        {/* Decorative header bar */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/30 bg-muted/20">
+          <div className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
+          <div className="w-2.5 h-2.5 rounded-full bg-green-500/60" />
+          <span className="ml-2 text-xs text-muted-foreground/50 font-mono">Azure Blob Storage</span>
+        </div>
+
+        {/* Line numbers and code */}
+        <div className="flex overflow-auto max-h-[400px]">
+          {/* Line numbers */}
+          <div className="flex-shrink-0 py-3 px-2 text-right select-none border-r border-border/20 bg-muted/10">
+            {jsonString.split('\n').map((_, i) => (
+              <div key={i} className="text-xs text-muted-foreground/30 font-mono leading-relaxed">
+                {i + 1}
+              </div>
+            ))}
+          </div>
+
+          {/* Code content */}
+          <div className="flex-1 py-3 px-4 font-mono">
+            <JsonSyntaxHighlight json={jsonString} />
+          </div>
+        </div>
+
+        {/* Subtle gradient overlay at bottom */}
+        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[hsl(222,47%,5%)] to-transparent pointer-events-none" />
+      </div>
+    </div>
+  );
+}
+
 // Task Detail Panel Component
 function TaskDetailPanel({
   task,
@@ -540,141 +685,184 @@ function TaskDetailPanel({
         </div>
       </div>
 
-      {/* Info Section */}
-      <CollapsibleSection
-        title="Task Info"
-        icon={<ClipboardList className="h-4 w-4" />}
-        expanded={expandedSections.has('info')}
-        onToggle={() => toggleSection('info')}
-      >
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div>
-            <span className="text-muted-foreground">Time in Phase:</span>
-            <span className="ml-2">{formatDuration(task.task.timeInPhase)}</span>
-          </div>
-          {task.task.agent && (
-            <div>
-              <span className="text-muted-foreground">Agent:</span>
-              <span className="ml-2">{task.task.agent}</span>
-            </div>
-          )}
-          {task.task.repository && (
-            <div className="col-span-2">
-              <span className="text-muted-foreground">Repository:</span>
-              <span className="ml-2 flex items-center gap-1">
-                <GitBranch className="h-3 w-3" />
-                {task.task.repository}
-              </span>
-            </div>
-          )}
-          <div>
-            <span className="text-muted-foreground">Retry Count:</span>
-            <span className="ml-2">{task.task.retryCount}</span>
-          </div>
-          {task.task.createdAt && (
-            <div>
-              <span className="text-muted-foreground">Created:</span>
-              <span className="ml-2">{new Date(task.task.createdAt).toLocaleString()}</span>
-            </div>
-          )}
-        </div>
-      </CollapsibleSection>
+      {/* Tabbed Content */}
+      <Tabs defaultValue="overview" className="w-full">
+        <TabsList className="grid w-full grid-cols-3 bg-muted/30">
+          <TabsTrigger value="overview" className="gap-1.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <Info className="h-3.5 w-3.5" />
+            Overview
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <History className="h-3.5 w-3.5" />
+            History
+          </TabsTrigger>
+          <TabsTrigger value="envelope" className="gap-1.5 text-xs data-[state=active]:bg-background data-[state=active]:shadow-sm">
+            <Braces className="h-3.5 w-3.5" />
+            Envelope
+          </TabsTrigger>
+        </TabsList>
 
-      {/* Artifacts Section */}
-      {(task.artifacts.spec || task.artifacts.plan) && (
-        <CollapsibleSection
-          title="Artifacts"
-          icon={<FileText className="h-4 w-4" />}
-          expanded={expandedSections.has('artifacts')}
-          onToggle={() => toggleSection('artifacts')}
-        >
-          <div className="space-y-2">
-            {task.artifacts.spec && (
-              <div className="flex items-center gap-2 text-sm">
-                <FileText className="h-4 w-4 text-blue-500" />
-                <span>spec.md</span>
-                <span className="text-muted-foreground text-xs">
-                  {new Date(task.artifacts.spec.lastModified).toLocaleString()}
-                </span>
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-4 mt-4">
+          {/* Info Section */}
+          <CollapsibleSection
+            title="Task Info"
+            icon={<ClipboardList className="h-4 w-4" />}
+            expanded={expandedSections.has('info')}
+            onToggle={() => toggleSection('info')}
+          >
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div>
+                <span className="text-muted-foreground">Time in Phase:</span>
+                <span className="ml-2">{formatDuration(task.task.timeInPhase)}</span>
               </div>
-            )}
-            {task.artifacts.plan && (
-              <div className="flex items-center gap-2 text-sm">
-                <FileText className="h-4 w-4 text-purple-500" />
-                <span>plan.md</span>
-                <span className="text-muted-foreground text-xs">
-                  {new Date(task.artifacts.plan.lastModified).toLocaleString()}
-                </span>
+              {task.task.agent && (
+                <div>
+                  <span className="text-muted-foreground">Agent:</span>
+                  <span className="ml-2">{task.task.agent}</span>
+                </div>
+              )}
+              {task.task.repository && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Repository:</span>
+                  <span className="ml-2 flex items-center gap-1">
+                    <GitBranch className="h-3 w-3" />
+                    {task.task.repository}
+                  </span>
+                </div>
+              )}
+              <div>
+                <span className="text-muted-foreground">Retry Count:</span>
+                <span className="ml-2">{task.task.retryCount}</span>
               </div>
-            )}
-          </div>
-        </CollapsibleSection>
-      )}
+              {task.task.createdAt && (
+                <div>
+                  <span className="text-muted-foreground">Created:</span>
+                  <span className="ml-2">{new Date(task.task.createdAt).toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+          </CollapsibleSection>
 
-      {/* Phase History Section */}
-      {task.phaseHistory.length > 0 && (
-        <CollapsibleSection
-          title="Phase History"
-          icon={<Clock className="h-4 w-4" />}
-          expanded={expandedSections.has('history')}
-          onToggle={() => toggleSection('history')}
-        >
-          <div className="space-y-2">
-            {task.phaseHistory.map((entry, i) => {
-              const outcome = entry.outcome || entry.status;
-              const dateStr = entry.ended_at || entry.started_at || entry.timestamp;
-              const displayDate = dateStr ? new Date(dateStr).toLocaleString() : 'Unknown';
-              return (
-                <div key={i} className="flex items-start gap-2 text-sm">
-                  {outcome === 'completed' ? (
-                    <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
-                  ) : outcome === 'failed' ? (
-                    <XCircle className="h-4 w-4 text-red-500 mt-0.5" />
-                  ) : outcome === 'cancelled' ? (
-                    <Ban className="h-4 w-4 text-orange-500 mt-0.5" />
-                  ) : (
-                    <Hourglass className="h-4 w-4 text-blue-500 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <div className="font-medium">{entry.phase}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {displayDate}
-                      {entry.duration_ms && ` • ${formatDuration(entry.duration_ms)}`}
+          {/* Artifacts Section */}
+          {(task.artifacts.spec || task.artifacts.plan) && (
+            <CollapsibleSection
+              title="Artifacts"
+              icon={<FileText className="h-4 w-4" />}
+              expanded={expandedSections.has('artifacts')}
+              onToggle={() => toggleSection('artifacts')}
+            >
+              <div className="space-y-2">
+                {task.artifacts.spec && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <FileText className="h-4 w-4 text-blue-500" />
+                    <span>spec.md</span>
+                    <span className="text-muted-foreground text-xs">
+                      {new Date(task.artifacts.spec.lastModified).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+                {task.artifacts.plan && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <FileText className="h-4 w-4 text-purple-500" />
+                    <span>plan.md</span>
+                    <span className="text-muted-foreground text-xs">
+                      {new Date(task.artifacts.plan.lastModified).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </CollapsibleSection>
+          )}
+        </TabsContent>
+
+        {/* History Tab */}
+        <TabsContent value="history" className="space-y-4 mt-4">
+          {/* Phase History Section */}
+          {task.phaseHistory.length > 0 && (
+            <CollapsibleSection
+              title="Phase History"
+              icon={<Clock className="h-4 w-4" />}
+              expanded={expandedSections.has('history')}
+              onToggle={() => toggleSection('history')}
+            >
+              <div className="space-y-2">
+                {task.phaseHistory.map((entry, i) => {
+                  const outcome = entry.outcome || entry.status;
+                  const dateStr = entry.ended_at || entry.started_at || entry.timestamp;
+                  const displayDate = dateStr ? new Date(dateStr).toLocaleString() : 'Unknown';
+                  return (
+                    <div key={i} className="flex items-start gap-2 text-sm">
+                      {outcome === 'completed' ? (
+                        <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5" />
+                      ) : outcome === 'failed' ? (
+                        <XCircle className="h-4 w-4 text-red-500 mt-0.5" />
+                      ) : outcome === 'cancelled' ? (
+                        <Ban className="h-4 w-4 text-orange-500 mt-0.5" />
+                      ) : (
+                        <Hourglass className="h-4 w-4 text-blue-500 mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        <div className="font-medium">{entry.phase}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {displayDate}
+                          {entry.duration_ms && ` • ${formatDuration(entry.duration_ms)}`}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CollapsibleSection>
+          )}
+
+          {/* Error History Section */}
+          {task.errorHistory.length > 0 && (
+            <CollapsibleSection
+              title="Error History"
+              icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
+              expanded={expandedSections.has('errors')}
+              onToggle={() => toggleSection('errors')}
+            >
+              <div className="space-y-3">
+                {task.errorHistory.map((entry, i) => (
+                  <div key={i} className="text-sm border-l-2 border-red-500 pl-3">
+                    <div className="font-medium text-red-500">
+                      {entry.phase} (Attempt {entry.attempt})
+                    </div>
+                    <div className="text-muted-foreground">{entry.error}</div>
+                    {entry.resolution && (
+                      <div className="text-green-600 mt-1">✓ {entry.resolution}</div>
+                    )}
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {new Date(entry.timestamp).toLocaleString()}
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        </CollapsibleSection>
-      )}
-
-      {/* Error History Section */}
-      {task.errorHistory.length > 0 && (
-        <CollapsibleSection
-          title="Error History"
-          icon={<AlertTriangle className="h-4 w-4 text-red-500" />}
-          expanded={expandedSections.has('errors')}
-          onToggle={() => toggleSection('errors')}
-        >
-          <div className="space-y-3">
-            {task.errorHistory.map((entry, i) => (
-              <div key={i} className="text-sm border-l-2 border-red-500 pl-3">
-                <div className="font-medium text-red-500">
-                  {entry.phase} (Attempt {entry.attempt})
-                </div>
-                <div className="text-muted-foreground">{entry.error}</div>
-                {entry.resolution && (
-                  <div className="text-green-600 mt-1">✓ {entry.resolution}</div>
-                )}
-                <div className="text-xs text-muted-foreground mt-1">
-                  {new Date(entry.timestamp).toLocaleString()}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </CollapsibleSection>
-      )}
+            </CollapsibleSection>
+          )}
+
+          {task.phaseHistory.length === 0 && task.errorHistory.length === 0 && (
+            <div className="text-center text-muted-foreground py-8">
+              <History className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">No history available yet</p>
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Envelope Tab */}
+        <TabsContent value="envelope" className="mt-4">
+          {task.envelope && Object.keys(task.envelope).length > 0 ? (
+            <EnvelopeViewer envelope={task.envelope} />
+          ) : (
+            <div className="text-center text-muted-foreground py-8">
+              <Braces className="h-8 w-8 mx-auto mb-2 opacity-30" />
+              <p className="text-sm">Envelope data not available</p>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
