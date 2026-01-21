@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -568,8 +568,12 @@ function CollapsibleSection({
   );
 }
 
+interface ExecutionFeedProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
 // Main Execution Feed Component
-export function ExecutionFeed() {
+export function ExecutionFeed({ forceState }: ExecutionFeedProps) {
   const {
     executions,
     workflows,
@@ -585,6 +589,15 @@ export function ExecutionFeed() {
   } = useN8nExecutions();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
 
   // Count running executions
   const runningCount = executions?.executions.filter(e => e.status === 'running').length || 0;

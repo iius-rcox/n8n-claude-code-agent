@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useHealth } from '@/hooks/use-health';
+import { useSectionState } from '@/hooks/use-section-state';
 import { HealthStatus, HealthDetails } from '@/services/api';
 import {
   Activity,
@@ -19,7 +20,92 @@ import {
   XCircle,
   AlertTriangle,
   Loader2,
+  Key,
+  FileText,
+  RotateCcw,
+  Lightbulb,
+  Zap,
+  ExternalLink,
 } from 'lucide-react';
+
+// Remediation actions for each component type
+const REMEDIATION_ACTIONS: Record<string, { label: string; action: string; icon: React.ReactNode; description: string }[]> = {
+  pod: [
+    { label: 'View Logs', action: 'logs', icon: <FileText className="h-3 w-3" />, description: 'Check pod logs for errors' },
+    { label: 'Restart', action: 'restart', icon: <RotateCcw className="h-3 w-3" />, description: 'Restart the pod' },
+  ],
+  auth: [
+    { label: 'Refresh Token', action: 'refresh-auth', icon: <Key className="h-3 w-3" />, description: 'Navigate to authentication panel' },
+  ],
+  cronjob: [
+    { label: 'Run Now', action: 'trigger-cronjob', icon: <Zap className="h-3 w-3" />, description: 'Manually trigger the job' },
+  ],
+  storage: [
+    { label: 'Test Connection', action: 'test-storage', icon: <RefreshCw className="h-3 w-3" />, description: 'Test storage connectivity' },
+  ],
+  n8n: [
+    { label: 'Open n8n', action: 'open-n8n', icon: <ExternalLink className="h-3 w-3" />, description: 'Open n8n dashboard' },
+  ],
+};
+
+// Issue correlation patterns for root cause analysis
+interface IssueGroup {
+  rootCause: string;
+  relatedComponents: string[];
+  suggestedAction: string;
+  priority: 'high' | 'medium' | 'low';
+}
+
+function analyzeIssues(components: HealthStatus[]): IssueGroup[] {
+  const unhealthy = components.filter(c => c.status === 'unhealthy');
+  const groups: IssueGroup[] = [];
+
+  // Pattern: Pod issues causing auth failures
+  const podIssues = unhealthy.filter(c => c.component === 'pod');
+  const authIssues = unhealthy.filter(c => c.component === 'auth');
+
+  if (podIssues.length > 0 && authIssues.length > 0) {
+    groups.push({
+      rootCause: 'Pod health issues may be causing authentication failures',
+      relatedComponents: [...podIssues.map(p => p.name), ...authIssues.map(a => a.name)],
+      suggestedAction: 'Restart unhealthy pods first',
+      priority: 'high',
+    });
+  }
+
+  // Pattern: Multiple pod failures
+  if (podIssues.length > 1) {
+    groups.push({
+      rootCause: 'Multiple pods are failing - possible cluster-wide issue',
+      relatedComponents: podIssues.map(p => p.name),
+      suggestedAction: 'Check cluster resources and node health',
+      priority: 'high',
+    });
+  }
+
+  // Pattern: Auth failure alone
+  if (authIssues.length > 0 && podIssues.length === 0) {
+    groups.push({
+      rootCause: 'Authentication token may have expired',
+      relatedComponents: authIssues.map(a => a.name),
+      suggestedAction: 'Refresh Claude authentication token',
+      priority: 'high',
+    });
+  }
+
+  // Pattern: Storage issues
+  const storageIssues = unhealthy.filter(c => c.component === 'storage');
+  if (storageIssues.length > 0) {
+    groups.push({
+      rootCause: 'Azure Blob Storage connectivity issue',
+      relatedComponents: storageIssues.map(s => s.name),
+      suggestedAction: 'Check Azure credentials and network connectivity',
+      priority: 'medium',
+    });
+  }
+
+  return groups;
+}
 
 function formatStatus(status: HealthStatus['status']): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
@@ -64,6 +150,37 @@ function StatusIndicator({ status }: { status: HealthStatus['status'] }) {
   );
 }
 
+// Quick action handler
+function handleQuickAction(action: string, componentName: string) {
+  switch (action) {
+    case 'logs':
+      // Scroll to execution history or open logs
+      document.querySelector('[data-section="execution-history"]')?.scrollIntoView({ behavior: 'smooth' });
+      break;
+    case 'restart':
+      // Would trigger pod restart API
+      console.log('Restart pod:', componentName);
+      break;
+    case 'refresh-auth':
+      // Scroll to auth panel
+      document.querySelector('[data-section="authentication"]')?.scrollIntoView({ behavior: 'smooth' });
+      break;
+    case 'trigger-cronjob':
+      // Scroll to cronjob panel
+      document.querySelector('[data-section="cronjob"]')?.scrollIntoView({ behavior: 'smooth' });
+      break;
+    case 'test-storage':
+      // Scroll to storage browser
+      document.querySelector('[data-section="storage"]')?.scrollIntoView({ behavior: 'smooth' });
+      break;
+    case 'open-n8n':
+      window.open('https://n8n.ii-us.com', '_blank');
+      break;
+    default:
+      console.log('Unknown action:', action);
+  }
+}
+
 function ComponentStatusItem({
   item,
   expanded,
@@ -74,6 +191,7 @@ function ComponentStatusItem({
   onToggle: () => void;
 }) {
   const details = item.details || {};
+  const actions = REMEDIATION_ACTIONS[item.component] || [];
 
   const renderDetails = (details: HealthDetails, component: HealthStatus['component']) => {
     switch (component) {
@@ -209,6 +327,28 @@ function ComponentStatusItem({
             className="px-3 pb-3"
           >
             {renderDetails(details, item.component)}
+
+            {/* Quick Fix Actions - show for unhealthy/warning status */}
+            {(item.status === 'unhealthy' || item.status === 'warning') && actions.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3 pl-6">
+                {actions.map((action) => (
+                  <Button
+                    key={action.action}
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1.5 hover:bg-cyan-500/10 hover:border-cyan-500/30 hover:text-cyan-400"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleQuickAction(action.action, item.name);
+                    }}
+                    title={action.description}
+                  >
+                    {action.icon}
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -216,15 +356,45 @@ function ComponentStatusItem({
   );
 }
 
-export function HealthPanel() {
+interface HealthPanelProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
+export function HealthPanel({ forceState }: HealthPanelProps) {
   const { health, isLoading, error, refresh } = useHealth();
   const hasIssue = error || (health && health.overall !== 'healthy');
-  const [isCollapsed, setIsCollapsed] = useState(!hasIssue);
+  const { isCollapsed, expand, collapse } = useSectionState('health-panel', true);
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  // Calculate issue counts for summary bar
+  const issueCounts = useMemo(() => {
+    if (!health) return { critical: 0, warnings: 0 };
+    return {
+      critical: health.components.filter(c => c.status === 'unhealthy').length,
+      warnings: health.components.filter(c => c.status === 'warning').length,
+    };
+  }, [health]);
+
+  // Analyze issues for root cause
+  const issueGroups = useMemo(() => {
+    if (!health) return [];
+    return analyzeIssues(health.components);
+  }, [health]);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      expand();
+    } else if (forceState === 'collapsed') {
+      collapse();
+    }
+  }, [forceState, expand, collapse]);
 
   // Auto-expand when there's an issue, collapse when healthy
   useEffect(() => {
-    setIsCollapsed(!hasIssue);
+    if (hasIssue) {
+      expand();
+    }
     // Auto-expand unhealthy items
     if (health) {
       const unhealthyItems = health.components
@@ -232,7 +402,7 @@ export function HealthPanel() {
         .map((c) => c.name);
       setExpandedItems(new Set(unhealthyItems));
     }
-  }, [hasIssue, health]);
+  }, [hasIssue, health, expand]);
 
   const toggleItem = (name: string) => {
     setExpandedItems((prev) => {
@@ -281,10 +451,10 @@ export function HealthPanel() {
   };
 
   return (
-    <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
+    <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden" data-section="health">
       <CardHeader
         className={`${isCollapsed ? 'cursor-pointer hover:bg-muted/50' : ''} border-b border-border/30`}
-        onClick={() => isCollapsed && setIsCollapsed(false)}
+        onClick={() => isCollapsed && expand()}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -330,6 +500,32 @@ export function HealthPanel() {
                 </p>
               )}
             </div>
+
+            {/* Health Summary Bar - shown when collapsed */}
+            {isCollapsed && health && (issueCounts.critical > 0 || issueCounts.warnings > 0) && (
+              <div className="flex items-center gap-2 ml-2">
+                {issueCounts.critical > 0 && (
+                  <motion.div
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/30"
+                    animate={{ opacity: [1, 0.7, 1] }}
+                    transition={{ duration: 1.5, repeat: Infinity }}
+                  >
+                    <XCircle className="h-3 w-3 text-red-400" />
+                    <span className="text-xs text-red-400 font-medium">
+                      {issueCounts.critical} Critical
+                    </span>
+                  </motion.div>
+                )}
+                {issueCounts.warnings > 0 && (
+                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30">
+                    <AlertTriangle className="h-3 w-3 text-yellow-400" />
+                    <span className="text-xs text-yellow-400 font-medium">
+                      {issueCounts.warnings} Warning{issueCounts.warnings > 1 ? 's' : ''}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -367,6 +563,51 @@ export function HealthPanel() {
 
               {health && (
                 <>
+                  {/* Root Cause Analysis - shown when issues detected */}
+                  {issueGroups.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20"
+                    >
+                      <div className="flex items-start gap-2">
+                        <Lightbulb className="h-4 w-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-amber-400">Root Cause Analysis</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {issueGroups[0].rootCause}
+                          </p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs gap-1.5 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-400"
+                              onClick={() => {
+                                // Navigate to appropriate section based on suggested action
+                                if (issueGroups[0].suggestedAction.toLowerCase().includes('pod')) {
+                                  // Stay on health panel, pods are shown here
+                                } else if (issueGroups[0].suggestedAction.toLowerCase().includes('auth')) {
+                                  document.querySelector('[data-section="authentication"]')?.scrollIntoView({ behavior: 'smooth' });
+                                }
+                              }}
+                            >
+                              <Zap className="h-3 w-3" />
+                              {issueGroups[0].suggestedAction}
+                            </Button>
+                            <span className={`
+                              px-2 py-0.5 rounded-full text-xs font-medium
+                              ${issueGroups[0].priority === 'high' ? 'bg-red-500/10 text-red-400' : ''}
+                              ${issueGroups[0].priority === 'medium' ? 'bg-yellow-500/10 text-yellow-400' : ''}
+                              ${issueGroups[0].priority === 'low' ? 'bg-blue-500/10 text-blue-400' : ''}
+                            `}>
+                              {issueGroups[0].priority} priority
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+
                   {/* Overall Status Card */}
                   <div className={`
                     flex items-center justify-between mb-6 p-3 rounded-lg border
@@ -483,7 +724,7 @@ export function HealthPanel() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => setIsCollapsed(true)}
+                      onClick={() => collapse()}
                       className="text-xs hover:bg-muted"
                     >
                       Collapse

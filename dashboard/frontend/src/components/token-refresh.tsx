@@ -19,9 +19,10 @@ const STEP_LABELS: Record<string, string> = {
 
 interface TokenRefreshProps {
   isAuthenticated?: boolean;
+  forceState?: 'expanded' | 'collapsed' | null;
 }
 
-export function TokenRefresh({ isAuthenticated = false }: TokenRefreshProps) {
+export function TokenRefresh({ isAuthenticated = false, forceState }: TokenRefreshProps) {
   const [isCollapsed, setIsCollapsed] = useState(isAuthenticated);
   const [isLoading, setIsLoading] = useState(false);
   const [initResponse, setInitResponse] = useState<RefreshInitResponse | null>(null);
@@ -41,6 +42,15 @@ export function TokenRefresh({ isAuthenticated = false }: TokenRefreshProps) {
   useEffect(() => {
     setIsCollapsed(isAuthenticated);
   }, [isAuthenticated]);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
 
   const handleInitiateRefresh = async () => {
     setIsLoading(true);

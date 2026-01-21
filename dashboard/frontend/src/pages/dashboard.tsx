@@ -1,5 +1,5 @@
 import { useMsal } from '@azure/msal-react';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { setMsalInstance, getAuthStatus } from '@/services/api';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,12 @@ import { CronJobPanel } from '@/components/cronjob-panel';
 import { PipelineBoard } from '@/components/pipeline-board';
 import { ExecutionFeed } from '@/components/execution-feed';
 import { StorageBrowser } from '@/components/storage-browser';
+import { ActivityTimeline } from '@/components/activity-timeline';
+import { SmartNotifications } from '@/components/smart-notifications';
+import { DashboardControls } from '@/components/ui/dashboard-controls';
 import { useHealth } from '@/hooks/use-health';
+import { useGlobalSectionState } from '@/hooks/use-section-state';
+import { useKeyboardShortcuts, navigateToSection, SECTION_IDS } from '@/hooks/use-keyboard-shortcuts';
 import { Activity, LogOut, Cpu } from 'lucide-react';
 
 // Health Ring Component for header
@@ -117,6 +122,26 @@ export function Dashboard() {
   const { instance, accounts } = useMsal();
   const account = accounts[0];
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { health } = useHealth();
+
+  // Global section expand/collapse state
+  const { globalState, expandAll, collapseAll } = useGlobalSectionState();
+
+  // Keyboard shortcuts - memoized to prevent re-registering
+  const shortcuts = useMemo(() => [
+    { key: 'e', action: expandAll, description: 'Expand all sections' },
+    { key: 'c', action: collapseAll, description: 'Collapse all sections' },
+    { key: '1', action: () => navigateToSection(SECTION_IDS.health), description: 'Go to Health' },
+    { key: '2', action: () => navigateToSection(SECTION_IDS.auth), description: 'Go to Auth' },
+    { key: '3', action: () => navigateToSection(SECTION_IDS.cronjobs), description: 'Go to CronJobs' },
+    { key: '4', action: () => navigateToSection(SECTION_IDS.pipeline), description: 'Go to Pipeline' },
+    { key: '5', action: () => navigateToSection(SECTION_IDS.executions), description: 'Go to Executions' },
+    { key: '6', action: () => navigateToSection(SECTION_IDS.storage), description: 'Go to Storage' },
+    { key: '7', action: () => navigateToSection(SECTION_IDS.agent), description: 'Go to Agent' },
+    { key: '8', action: () => navigateToSection(SECTION_IDS.history), description: 'Go to History' },
+  ], [expandAll, collapseAll]);
+
+  useKeyboardShortcuts(shortcuts);
 
   // Fetch auth status for collapse state
   const fetchAuthStatus = useCallback(async () => {
@@ -210,40 +235,61 @@ export function Dashboard() {
         initial="hidden"
         animate="visible"
       >
+        {/* Dashboard Controls - Expand All / Collapse All */}
+        <DashboardControls
+          onExpandAll={expandAll}
+          onCollapseAll={collapseAll}
+        />
+
+        {/* Smart Notifications - Context-aware alerts with snooze */}
+        <SmartNotifications
+          healthStatus={health?.overall}
+          authStatus={isAuthenticated ? 'authenticated' : 'expired'}
+        />
+
         {/* Top Row: Health + Authentication */}
         <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <HealthPanel />
-          <TokenRefresh isAuthenticated={isAuthenticated} />
+          <div data-section="health">
+            <HealthPanel forceState={globalState} />
+          </div>
+          <div data-section="auth">
+            <TokenRefresh isAuthenticated={isAuthenticated} forceState={globalState} />
+          </div>
         </motion.div>
 
         {/* CronJob Panel */}
-        <motion.div variants={itemVariants} className="mb-6">
-          <CronJobPanel />
+        <motion.div variants={itemVariants} className="mb-6" data-section="cronjobs">
+          <CronJobPanel forceState={globalState} />
         </motion.div>
 
         {/* Task Pipeline - Kanban view of agent tasks */}
-        <motion.div variants={itemVariants} className="mb-6">
-          <PipelineBoard />
+        <motion.div variants={itemVariants} className="mb-6" data-section="pipeline">
+          <PipelineBoard forceState={globalState} />
         </motion.div>
 
         {/* n8n Execution Feed - Real-time workflow executions */}
-        <motion.div variants={itemVariants} className="mb-6">
-          <ExecutionFeed />
+        <motion.div variants={itemVariants} className="mb-6" data-section="executions">
+          <ExecutionFeed forceState={globalState} />
         </motion.div>
 
         {/* Storage Browser - Azure Blob Storage */}
-        <motion.div variants={itemVariants} className="mb-6">
-          <StorageBrowser />
+        <motion.div variants={itemVariants} className="mb-6" data-section="storage">
+          <StorageBrowser forceState={globalState} />
+        </motion.div>
+
+        {/* Activity Timeline - Recent system events */}
+        <motion.div variants={itemVariants} className="mb-6" data-section="activity">
+          <ActivityTimeline forceState={globalState} />
         </motion.div>
 
         {/* Full Width: Agent Executor */}
-        <motion.div variants={itemVariants} className="mb-6">
-          <AgentExecutor />
+        <motion.div variants={itemVariants} className="mb-6" data-section="agent">
+          <AgentExecutor forceState={globalState} />
         </motion.div>
 
         {/* Full Width: Execution History */}
-        <motion.div variants={itemVariants}>
-          <ExecutionHistory />
+        <motion.div variants={itemVariants} data-section="history">
+          <ExecutionHistory forceState={globalState} />
         </motion.div>
       </motion.main>
 
