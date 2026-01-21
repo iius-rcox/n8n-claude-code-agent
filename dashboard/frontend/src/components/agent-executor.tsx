@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -44,12 +44,25 @@ const QUICK_COMMANDS = [
   { label: 'Git status', prompt: 'Show git status for this repository', icon: <Command className="h-3 w-3" /> },
 ];
 
-export function AgentExecutor() {
+interface AgentExecutorProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
+export function AgentExecutor({ forceState }: AgentExecutorProps) {
   const [prompt, setPrompt] = useState('');
   const [isExecuting, setIsExecuting] = useState(false);
   const [result, setResult] = useState<ExecutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(true);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
 
   const promptLength = prompt.length;
   const isOverLimit = promptLength > MAX_PROMPT_SIZE;

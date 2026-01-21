@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -713,11 +713,24 @@ function CollapsibleSection({
 }
 
 // Main Pipeline Board Component
-export function PipelineBoard() {
+interface PipelineBoardProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
+export function PipelineBoard({ forceState }: PipelineBoardProps) {
   const { pipeline, isLoading, error, refresh, selectedTask, selectTask, isLoadingTask, cancelTask, isCancelling, isSocketConnected } =
     usePipeline();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
 
   const handleCancelTask = async () => {
     if (!selectedTask) return;

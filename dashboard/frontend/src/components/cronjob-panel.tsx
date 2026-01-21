@@ -91,7 +91,11 @@ function formatRelativeTime(dateString?: string): string {
   return `${diffDays}d ago`;
 }
 
-export function CronJobPanel() {
+interface CronJobPanelProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
+export function CronJobPanel({ forceState }: CronJobPanelProps) {
   const [cronJob, setCronJob] = useState<CronJobStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +135,15 @@ export function CronJobPanel() {
       setIsCollapsed(false);
     }
   }, [hasIssue]);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
 
   const handleTrigger = async () => {
     setShowConfirmDialog(false);

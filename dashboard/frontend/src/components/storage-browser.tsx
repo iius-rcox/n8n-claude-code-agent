@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FolderOpen,
@@ -232,7 +232,11 @@ function ContentPreview({ content, contentType, truncated, encoding }: ContentPr
   );
 }
 
-export function StorageBrowser() {
+interface StorageBrowserProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
+export function StorageBrowser({ forceState }: StorageBrowserProps) {
   const {
     containers,
     selectedContainer,
@@ -258,6 +262,15 @@ export function StorageBrowser() {
   } = useStorage();
 
   const [isCollapsed, setIsCollapsed] = useState(false);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
   const [deleteTarget, setDeleteTarget] = useState<BlobItem | null>(null);
   const [leaseTarget, setLeaseTarget] = useState<BlobItem | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);

@@ -97,7 +97,11 @@ function truncateText(text: string, maxLength: number): string {
   return text.substring(0, maxLength) + '...';
 }
 
-export function ExecutionHistory() {
+interface ExecutionHistoryProps {
+  forceState?: 'expanded' | 'collapsed' | null;
+}
+
+export function ExecutionHistory({ forceState }: ExecutionHistoryProps) {
   const [executions, setExecutions] = useState<ExecutionRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -106,6 +110,15 @@ export function ExecutionHistory() {
   const [selectedExecution, setSelectedExecution] = useState<ExecutionRecord | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(true);
+
+  // Handle force state from parent (global toggle)
+  useEffect(() => {
+    if (forceState === 'expanded') {
+      setIsCollapsed(false);
+    } else if (forceState === 'collapsed') {
+      setIsCollapsed(true);
+    }
+  }, [forceState]);
 
   const fetchExecutions = useCallback(async () => {
     try {
