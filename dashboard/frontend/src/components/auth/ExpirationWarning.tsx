@@ -1,4 +1,3 @@
-import React from 'react';
 import { TokenUrgencyLevel } from '../../types/auth';
 import styles from './ExpirationWarning.module.css';
 

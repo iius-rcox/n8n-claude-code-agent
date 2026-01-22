@@ -1,4 +1,3 @@
-import React from 'react';
 import { useTaskDiagnostics } from '../../hooks/useTaskDiagnostics';
 import { formatDuration } from '../../utils/formatting';
 import styles from './DiagnosticModal.module.css';

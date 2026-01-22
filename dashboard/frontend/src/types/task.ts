@@ -14,9 +14,10 @@ export type TaskPhase =
  */
 export interface TaskError {
   message: string;
-  phase: TaskPhase;
+  phase?: TaskPhase;
   timestamp: Date;
-  logs: string[];
+  logs?: string[];
+  code?: string;
   errorCode?: string;
   stackTrace?: string;
 }

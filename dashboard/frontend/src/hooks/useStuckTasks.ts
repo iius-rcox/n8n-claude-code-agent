@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTasks } from './useTasks';
-import { StuckTask } from '../types/task';
+import { StuckTask, TaskPhase } from '../types/task';
 import { STUCK_TASK_THRESHOLD_MS } from '../constants/thresholds';
 
 export interface UseStuckTasksResult {
@@ -38,7 +38,7 @@ export function useStuckTasks(): UseStuckTasksResult {
         stuck.push({
           id: task.id,
           title: task.title || `Task ${task.id}`,
-          currentPhase: task.currentPhase || 'unknown',
+          currentPhase: (task.currentPhase as TaskPhase) || 'intake',
           stuckSince: new Date(startTime),
           stuckDuration: duration,
           lastError: task.lastError
@@ -52,7 +52,7 @@ export function useStuckTasks(): UseStuckTasksResult {
               }
             : undefined,
           retryCount: task.retryCount || 0,
-          escalationStatus: task.escalationStatus,
+          escalationStatus: task.escalationStatus as any, // TODO: API should return full EscalationStatus object
         });
       }
     }
