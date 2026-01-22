@@ -1,0 +1,519 @@
+openapi: 3.0.3
+info:
+  title: Dashboard Components API
+  description: API endpoints for bulk component operations and health management
+  version: 1.0.0
+  contact:
+    name: II-US Development Team
+    url: https://ii-us.com
+
+servers:
+  - url: https://ops-dashboard.ii-us.com/api
+    description: Production dashboard API
+  - url: http://localhost:3001/api
+    description: Local development
+
+tags:
+  - name: components
+    description: Component health and bulk operations
+  - name: storage
+    description: Azure Blob Storage file operations
+
+paths:
+  /components/bulk-restart:
+    post:
+      summary: Restart multiple components simultaneously
+      description: |
+        Restarts multiple Kubernetes components (pods) in parallel using Promise.allSettled
+        for partial failure handling. This endpoint is used by the Health Panel's bulk
+        action toolbar when operators select multiple components and click "Restart All".
+
+        **Behavior**:
+        - Deletes selected pods via Kubernetes API (triggering automatic recreation)
+        - Executes all restart operations in parallel
+        - Returns individual status for each component (success/failure)
+        - Partial failures are allowed (some restarts succeed, others fail)
+
+        **Limits**:
+        - Maximum 50 components per request
+        - Operations timeout after 30 seconds per component
+      operationId: bulkRestartComponents
+      tags:
+        - components
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkRestartRequest'
+            example:
+              componentIds:
+                - 'claude-agent/pod/claude-code-agent-abc123'
+                - 'claude-agent/pod/auth-watchdog-xyz789'
+                - 'ops-dashboard/pod/ops-dashboard-def456'
+      responses:
+        '200':
+          description: Bulk restart operation completed (check individual results)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkRestartResponse'
+              examples:
+                allSuccess:
+                  summary: All components restarted successfully
+                  value:
+                    results:
+                      - componentId: 'claude-agent/pod/claude-code-agent-abc123'
+                        componentName: 'claude-code-agent-abc123'
+                        status: 'success'
+                        message: 'Pod restart initiated'
+                        timestamp: '2026-01-21T09:00:00Z'
+                      - componentId: 'claude-agent/pod/auth-watchdog-xyz789'
+                        componentName: 'auth-watchdog-xyz789'
+                        status: 'success'
+                        message: 'Pod restart initiated'
+                        timestamp: '2026-01-21T09:00:01Z'
+                    summary:
+                      total: 2
+                      succeeded: 2
+                      failed: 0
+                      pending: 0
+                partialFailure:
+                  summary: Mixed success and failure
+                  value:
+                    results:
+                      - componentId: 'claude-agent/pod/claude-code-agent-abc123'
+                        componentName: 'claude-code-agent-abc123'
+                        status: 'success'
+                        message: 'Pod restart initiated'
+                        timestamp: '2026-01-21T09:00:00Z'
+                      - componentId: 'claude-agent/pod/nonexistent-pod'
+                        componentName: 'nonexistent-pod'
+                        status: 'failure'
+                        message: 'Pod not found in namespace claude-agent'
+                        timestamp: '2026-01-21T09:00:01Z'
+                    summary:
+                      total: 2
+                      succeeded: 1
+                      failed: 1
+                      pending: 0
+        '400':
+          description: Invalid request (too many components, invalid IDs)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Bad Request'
+                message: 'Maximum 50 components allowed per bulk restart request'
+                statusCode: 400
+        '500':
+          description: Internal server error (Kubernetes API unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /components/logs:
+    post:
+      summary: Retrieve logs from multiple components
+      description: |
+        Fetches recent logs from multiple Kubernetes components in parallel. This
+        endpoint is used by the Health Panel's bulk action toolbar when operators
+        select components and click "View Logs".
+
+        **Behavior**:
+        - Retrieves last N lines of logs from each component
+        - Executes all log fetches in parallel
+        - Returns logs grouped by component in tabbed view format
+
+        **Limits**:
+        - Maximum 10 components per request (to prevent UI overload)
+        - Default 100 lines per component, maximum 1000 lines
+      operationId: getBulkComponentLogs
+      tags:
+        - components
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GetBulkLogsRequest'
+            example:
+              componentIds:
+                - 'claude-agent/pod/claude-code-agent-abc123'
+                - 'claude-agent/pod/auth-watchdog-xyz789'
+              lines: 50
+      responses:
+        '200':
+          description: Logs retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetBulkLogsResponse'
+              example:
+                logs:
+                  - componentId: 'claude-agent/pod/claude-code-agent-abc123'
+                    componentName: 'claude-code-agent-abc123'
+                    lines:
+                      - '[2026-01-21T08:59:00Z] INFO: Server started on port 3000'
+                      - '[2026-01-21T08:59:05Z] INFO: Health check passed'
+                      - '[2026-01-21T08:59:10Z] INFO: Received POST /run request'
+                    timestamp: '2026-01-21T09:00:00Z'
+                  - componentId: 'claude-agent/pod/auth-watchdog-xyz789'
+                    componentName: 'auth-watchdog-xyz789'
+                    lines:
+                      - '[2026-01-21T08:58:00Z] INFO: Token check scheduled'
+                      - '[2026-01-21T08:58:30Z] INFO: Token valid, expires in 2h'
+                    timestamp: '2026-01-21T09:00:01Z'
+        '400':
+          description: Invalid request (too many components, invalid lines count)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Bad Request'
+                message: 'Maximum 10 components allowed per bulk logs request'
+                statusCode: 400
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /storage/{container}/search:
+    get:
+      summary: Search files in storage container
+      description: |
+        Performs fuzzy substring search across all blobs in the specified Azure
+        Blob Storage container. This endpoint is used by the Storage Browser's
+        search functionality to filter file trees in real-time.
+
+        **Search Algorithm**:
+        - Case-insensitive substring matching
+        - Searches full blob paths (e.g., "TASK-001/envelope.json")
+        - Results sorted by match position (earlier matches first)
+        - Performance target: <50ms for 1000 blobs
+
+        **Note**: Search is limited to the currently selected container. Cross-container
+        search is out of scope for Phase 1.
+      operationId: searchStorageFiles
+      tags:
+        - storage
+      parameters:
+        - name: container
+          in: path
+          required: true
+          description: Container name to search within
+          schema:
+            type: string
+            enum:
+              - agent-state
+              - agent-spec
+              - agent-plan
+              - agent-verification
+              - agent-review
+              - agent-release
+          example: 'agent-state'
+        - name: query
+          in: query
+          required: true
+          description: Search query string (case-insensitive)
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+          example: 'TASK-001'
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of results to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 1000
+      responses:
+        '200':
+          description: Search completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchStorageResponse'
+              example:
+                query: 'TASK-001'
+                container: 'agent-state'
+                results:
+                  - name: 'TASK-001/task-envelope.yml'
+                    container: 'agent-state'
+                    size: 2048
+                    lastModified: '2026-01-21T08:00:00Z'
+                    matchIndex: 0
+                  - name: 'TASK-001/spec.md'
+                    container: 'agent-state'
+                    size: 15360
+                    lastModified: '2026-01-21T07:30:00Z'
+                    matchIndex: 0
+                matchCount: 2
+                totalCount: 458
+                performanceMs: 12
+        '400':
+          description: Invalid request (empty query, invalid container)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Bad Request'
+                message: 'Search query cannot be empty'
+                statusCode: 400
+        '500':
+          description: Internal server error (Azure Blob Storage API failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+components:
+  schemas:
+    BulkRestartRequest:
+      type: object
+      required:
+        - componentIds
+      properties:
+        componentIds:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-z0-9-]+/(pod|deployment|cronjob)/[a-z0-9-]+$'
+          minItems: 1
+          maxItems: 50
+          description: |
+            Array of component IDs in format: namespace/resource-type/name
+            Example: "claude-agent/pod/claude-code-agent-abc123"
+          example:
+            - 'claude-agent/pod/claude-code-agent-abc123'
+            - 'claude-agent/pod/auth-watchdog-xyz789'
+
+    BulkRestartResponse:
+      type: object
+      required:
+        - results
+        - summary
+      properties:
+        results:
+          type: array
+          items:
+            type: object
+            required:
+              - componentId
+              - componentName
+              - status
+              - message
+              - timestamp
+            properties:
+              componentId:
+                type: string
+                description: Component identifier
+                example: 'claude-agent/pod/claude-code-agent-abc123'
+              componentName:
+                type: string
+                description: Human-readable component name
+                example: 'claude-code-agent-abc123'
+              status:
+                type: string
+                enum:
+                  - success
+                  - failure
+                  - pending
+                description: Result status for this component
+              message:
+                type: string
+                description: Status message
+                example: 'Pod restart initiated'
+              timestamp:
+                type: string
+                format: date-time
+                description: ISO 8601 timestamp of operation
+        summary:
+          type: object
+          required:
+            - total
+            - succeeded
+            - failed
+            - pending
+          properties:
+            total:
+              type: integer
+              description: Total number of components in request
+              example: 3
+            succeeded:
+              type: integer
+              description: Number of successful restarts
+              example: 2
+            failed:
+              type: integer
+              description: Number of failed restarts
+              example: 1
+            pending:
+              type: integer
+              description: Number of pending restarts
+              example: 0
+
+    GetBulkLogsRequest:
+      type: object
+      required:
+        - componentIds
+      properties:
+        componentIds:
+          type: array
+          items:
+            type: string
+            pattern: '^[a-z0-9-]+/(pod|deployment)/[a-z0-9-]+$'
+          minItems: 1
+          maxItems: 10
+          description: Array of component IDs to fetch logs from
+          example:
+            - 'claude-agent/pod/claude-code-agent-abc123'
+        lines:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+          description: Number of log lines to retrieve per component
+
+    GetBulkLogsResponse:
+      type: object
+      required:
+        - logs
+      properties:
+        logs:
+          type: array
+          items:
+            type: object
+            required:
+              - componentId
+              - componentName
+              - lines
+              - timestamp
+            properties:
+              componentId:
+                type: string
+                description: Component identifier
+                example: 'claude-agent/pod/claude-code-agent-abc123'
+              componentName:
+                type: string
+                description: Human-readable component name
+                example: 'claude-code-agent-abc123'
+              lines:
+                type: array
+                items:
+                  type: string
+                description: Log lines (most recent first)
+                example:
+                  - '[2026-01-21T08:59:00Z] INFO: Server started'
+              timestamp:
+                type: string
+                format: date-time
+                description: ISO 8601 timestamp when logs were fetched
+
+    SearchStorageResponse:
+      type: object
+      required:
+        - query
+        - container
+        - results
+        - matchCount
+        - totalCount
+      properties:
+        query:
+          type: string
+          description: Original search query
+          example: 'TASK-001'
+        container:
+          type: string
+          description: Container that was searched
+          example: 'agent-state'
+        results:
+          type: array
+          items:
+            type: object
+            required:
+              - name
+              - container
+              - size
+              - lastModified
+              - matchIndex
+            properties:
+              name:
+                type: string
+                description: Full blob path
+                example: 'TASK-001/task-envelope.yml'
+              container:
+                type: string
+                description: Container name
+                example: 'agent-state'
+              size:
+                type: integer
+                description: Blob size in bytes
+                example: 2048
+              lastModified:
+                type: string
+                format: date-time
+                description: ISO 8601 timestamp of last modification
+              matchIndex:
+                type: integer
+                description: Position of match in blob name (0-based)
+                example: 0
+        matchCount:
+          type: integer
+          description: Number of matching blobs
+          example: 2
+        totalCount:
+          type: integer
+          description: Total number of blobs in container
+          example: 458
+        performanceMs:
+          type: integer
+          description: Search execution time in milliseconds
+          example: 12
+
+    ApiError:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: 'Bad Request'
+        message:
+          type: string
+          description: Human-readable error message
+          example: 'Maximum 50 components allowed'
+        statusCode:
+          type: integer
+          description: HTTP status code
+          example: 400
+        details:
+          type: object
+          description: Optional additional error details
+          additionalProperties: true
+
+  securitySchemes:
+    azureAD:
+      type: oauth2
+      description: Azure AD OAuth2 authentication
+      flows:
+        authorizationCode:
+          authorizationUrl: https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize
+          tokenUrl: https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token
+          scopes:
+            api://dashboard/.default: Default access scope
+
+security:
+  - azureAD: []

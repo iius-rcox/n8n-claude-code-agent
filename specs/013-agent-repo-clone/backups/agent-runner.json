@@ -1,0 +1,316 @@
+{
+  "name": "Agent Runner",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T020: Agent Runner workflow shell"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T027: Build system prompt based on agent role\nconst input = $input.first().json;\nconst agentRole = input.agent_role || 'pm';\n\n// Agent prompt templates (loaded from agent-prompts/*.md in production)\nconst systemPrompts = {\n  pm: `You are a Senior Technical Project Manager specializing in breaking down feature requests into actionable development plans.\n\nYou excel at:\n- Extracting clear requirements from ambiguous requests\n- Identifying risks and dependencies early\n- Creating implementation plans that developers can execute without clarification\n- Knowing when requirements are too vague and need human clarification\n\nYou do NOT write code. Your deliverables are specifications, plans, and task breakdowns.\n\nOutput Format: Your output must be valid YAML or Markdown following the SpecKit template format.`,\n\n  dev: `You are a Senior Software Engineer who writes production-quality code.\n\nYou excel at:\n- Following existing codebase patterns and conventions\n- Writing minimal, focused changes that solve the stated problem\n- Including appropriate tests for new functionality\n- Creating atomic commits with clear messages\n- Never introducing security vulnerabilities\n\nYou implement exactly what's specified. Do not add features, refactor unrelated code, or \"improve\" things not requested.\n\nOutput Format: Return structured YAML with pr_url, commits, and summary.`,\n\n  qa: `You are a Senior QA Engineer who ensures code meets specifications before merge.\n\nYou excel at:\n- Verifying all acceptance criteria are satisfied\n- Running test suites and analyzing failures\n- Checking for edge cases and error handling\n- Validating security considerations\n- Reporting issues clearly with reproduction steps\n\nYou do NOT fix code. Your deliverable is a verification report.\n\nOutput Format: Return YAML verification report with test_results, criteria_status, and recommendation (approve/request_changes).`,\n\n  reviewer: `You are a Senior Staff Engineer conducting code reviews with a focus on security and quality.\n\nYou focus on:\n- Code correctness and logic errors\n- Security vulnerabilities (OWASP Top 10)\n- Performance implications\n- Adherence to project conventions\n- Test coverage adequacy\n\nApprove PRs that meet quality standards; request changes with clear rationale.\n\nOutput Format: Return YAML review feedback with overall_assessment (approve/request_changes), security_findings, and comments.`\n};\n\nconst systemPrompt = systemPrompts[agentRole] || systemPrompts.pm;\nconst fullPrompt = systemPrompt + '\\n\\n---\\n\\n' + (input.prompt || '');\n\nreturn [{\n  json: {\n    ...input,\n    full_prompt: fullPrompt,\n    timeout_ms: input.timeout_ms || 300000\n  }\n}];"
+      },
+      "id": "code_build_prompt",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T027: Agent role parameter for system prompt selection"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CLAUDE_AGENT_URL || 'http://claude-code-agent-svc.claude-agent.svc.cluster.local:3000' }}/run",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($json.full_prompt) }},\n  \"timeout\": {{ $json.timeout_ms }},\n  \"workingDir\": \"/workspace\"\n}",
+        "options": {
+          "response": { "response": { "fullResponse": true } },
+          "timeout": "={{ $json.timeout_ms + 10000 }}"
+        }
+      },
+      "id": "http_post_claude",
+      "name": "Call Claude Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "notes": "T021: HTTP Request to Claude Agent /run endpoint"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T026: Parse Claude response and extract output\nconst httpResponse = $input.first().json;\nconst input = $('Build Prompt').first().json;\n\n// Handle HTTP-level errors\nif (!httpResponse.body) {\n  return [{\n    json: {\n      success: false,\n      exit_code: -1,\n      output: '',\n      error: 'No response from Claude Agent',\n      agent_role: input.agent_role,\n      duration: 0\n    }\n  }];\n}\n\nconst body = httpResponse.body;\n\n// Parse structured output from Claude's response if present\nlet parsedOutput = null;\nif (body.output) {\n  // Try to extract YAML code blocks\n  const yamlMatch = body.output.match(/```ya?ml\\n([\\s\\S]*?)\\n```/);\n  if (yamlMatch) {\n    parsedOutput = { type: 'yaml', raw: yamlMatch[1] };\n  }\n  \n  // Try to extract JSON code blocks\n  const jsonMatch = body.output.match(/```json\\n([\\s\\S]*?)\\n```/);\n  if (jsonMatch) {\n    try {\n      parsedOutput = { type: 'json', data: JSON.parse(jsonMatch[1]) };\n    } catch (e) {\n      parsedOutput = { type: 'json', raw: jsonMatch[1], parseError: e.message };\n    }\n  }\n  \n  // Try to extract markdown\n  const mdMatch = body.output.match(/```(?:md|markdown)\\n([\\s\\S]*?)\\n```/);\n  if (mdMatch) {\n    parsedOutput = { type: 'markdown', raw: mdMatch[1] };\n  }\n}\n\nreturn [{\n  json: {\n    success: body.success === true && body.exitCode === 0,\n    exit_code: body.exitCode,\n    output: body.output || '',\n    stderr: body.stderr || '',\n    parsed_output: parsedOutput,\n    agent_role: input.agent_role,\n    duration: body.duration || 0\n  }\n}];"
+      },
+      "id": "code_parse_response",
+      "name": "Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "T026: Response parsing for Claude output extraction"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "success",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.exit_code }}", "rightValue": 0, "operator": { "type": "number", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "lease_conflict",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.exit_code }}", "rightValue": 23, "operator": { "type": "number", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "auth_failure",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.exit_code }}", "rightValue": 57, "operator": { "type": "number", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "timeout",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.exit_code }}", "rightValue": 124, "operator": { "type": "number", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "error",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.exit_code }}", "rightValue": 0, "operator": { "type": "number", "operation": "notEquals" } }
+                ]
+              }
+            }
+          ]
+        },
+        "fallbackOutput": "none"
+      },
+      "id": "route_exit_code",
+      "name": "Route Exit Code",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1120, 300],
+      "notes": "T022: Switch node for exit code routing (0, 23, 57, 124, other)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T022: Success path - return output\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'success',\n    exit_code: 0,\n    output: data.output,\n    parsed_output: data.parsed_output,\n    agent_role: data.agent_role,\n    duration: data.duration\n  }\n}];"
+      },
+      "id": "code_success_response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 60]
+    },
+    {
+      "parameters": {
+        "amount": 5,
+        "unit": "seconds"
+      },
+      "id": "wait_lease",
+      "name": "Wait 5 Seconds",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1340, 180],
+      "notes": "T023: Wait before retry on lease conflict"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T023: Lease conflict retry logic\nconst data = $input.first().json;\nconst retryCount = data.retry_count || 0;\nconst maxRetries = 3;\n\nif (retryCount >= maxRetries) {\n  return [{\n    json: {\n      status: 'error',\n      error_type: 'lease_conflict_max_retries',\n      exit_code: 23,\n      message: `Lease conflict persisted after ${maxRetries} retries`,\n      agent_role: data.agent_role\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    ...data,\n    retry_count: retryCount + 1,\n    should_retry: true\n  }\n}];"
+      },
+      "id": "code_lease_retry",
+      "name": "Lease Retry Logic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 180],
+      "notes": "T023: Retry logic for lease conflict with 5-second wait"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.should_retry }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if_should_retry",
+      "name": "Should Retry?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "// T024: Auth failure detection - immediate return\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'auth_failure',\n    exit_code: 57,\n    message: 'Claude authentication failed - tokens may be expired',\n    stderr: data.stderr,\n    agent_role: data.agent_role,\n    requires_action: 'token_refresh',\n    alert_required: true\n  }\n}];"
+      },
+      "id": "code_auth_failure",
+      "name": "Auth Failure Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "T024: Auth failure detection with immediate return"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T025: Timeout handling with extended timeout option\nconst data = $input.first().json;\nconst originalTimeout = data.timeout_ms || 300000;\nconst maxTimeout = 600000; // 10 minutes max\n\n// Suggest extended timeout if not already at max\nconst canExtend = originalTimeout < maxTimeout;\nconst suggestedTimeout = Math.min(originalTimeout * 1.5, maxTimeout);\n\nreturn [{\n  json: {\n    status: 'timeout',\n    exit_code: 124,\n    message: `Execution timed out after ${originalTimeout}ms`,\n    agent_role: data.agent_role,\n    original_timeout: originalTimeout,\n    can_extend: canExtend,\n    suggested_timeout: canExtend ? suggestedTimeout : null,\n    recommendation: canExtend \n      ? `Consider retrying with extended timeout of ${suggestedTimeout}ms`\n      : 'Already at maximum timeout - consider reducing task scope'\n  }\n}];"
+      },
+      "id": "code_timeout_response",
+      "name": "Timeout Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 420],
+      "notes": "T025: Timeout handling with extended timeout retry option"
+    },
+    {
+      "parameters": {
+        "jsCode": "// General error handling\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'error',\n    exit_code: data.exit_code,\n    message: data.stderr || 'Unknown error during agent execution',\n    output: data.output,\n    agent_role: data.agent_role,\n    duration: data.duration\n  }\n}];"
+      },
+      "id": "code_error_response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 540]
+    },
+    {
+      "parameters": {
+        "mode": "chooseBranch"
+      },
+      "id": "merge_responses",
+      "name": "Merge Responses",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1560, 420]
+    },
+    {
+      "parameters": {
+        "errorMessage": "={{ $json.message || 'Unknown error in Agent Runner' }}"
+      },
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format workflow-level error\nconst error = $input.first().json;\n\nreturn [{\n  json: {\n    status: 'workflow_error',\n    exit_code: -1,\n    message: error.message || 'Agent Runner workflow failed',\n    error_details: {\n      stack: error.stack,\n      node: error.node\n    }\n  }\n}];"
+      },
+      "id": "code_workflow_error",
+      "name": "Format Workflow Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Build Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [{ "node": "Call Claude Agent", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Claude Agent": {
+      "main": [
+        [{ "node": "Parse Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [{ "node": "Route Exit Code", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route Exit Code": {
+      "main": [
+        [{ "node": "Success Response", "type": "main", "index": 0 }],
+        [{ "node": "Wait 5 Seconds", "type": "main", "index": 0 }],
+        [{ "node": "Auth Failure Response", "type": "main", "index": 0 }],
+        [{ "node": "Timeout Response", "type": "main", "index": 0 }],
+        [{ "node": "Error Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Success Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait 5 Seconds": {
+      "main": [
+        [{ "node": "Lease Retry Logic", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lease Retry Logic": {
+      "main": [
+        [{ "node": "Should Retry?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Should Retry?": {
+      "main": [
+        [{ "node": "Build Prompt", "type": "main", "index": 0 }],
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Auth Failure Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Timeout Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Response": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Format Workflow Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Workflow Error": {
+      "main": [
+        [{ "node": "Merge Responses", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-1" },
+    { "name": "infrastructure" }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-19T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -12,7 +12,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// T071: Prepare download requests for spec.md, plan.md, tasks.md\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task_number || 1,\n    feedback: data.feedback || null,\n    downloads: {\n      spec: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/spec.md` },\n      plan: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/plan.md` },\n      tasks: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/tasks.md` }\n    }\n  }\n}];"
+        "jsCode": "// T071: Prepare download requests for spec.md, plan.md, tasks.md and task envelope\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task_number || 1,\n    feedback: data.feedback || null,\n    downloads: {\n      spec: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/spec.md` },\n      plan: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/plan.md` },\n      tasks: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/tasks.md` },\n      envelope: { operation: 'read', task_id: data.task_id }\n    }\n  }\n}];"
       },
       "id": "code_prepare_downloads",
       "name": "Prepare Downloads",
@@ -30,7 +30,7 @@
       "name": "Download spec.md",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [680, 200],
+      "position": [680, 100],
       "notes": "T071: Download spec"
     },
     {
@@ -42,7 +42,7 @@
       "name": "Download plan.md",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [680, 300],
+      "position": [680, 200],
       "notes": "T071: Download plan"
     },
     {
@@ -54,8 +54,20 @@
       "name": "Download tasks.md",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [680, 400],
+      "position": [680, 300],
       "notes": "T071: Download tasks"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_read_envelope",
+      "name": "Read Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 400],
+      "notes": "013: Read task envelope for repository URL"
     },
     {
       "parameters": {
@@ -65,7 +77,7 @@
       "name": "Extract Spec Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 200]
+      "position": [460, 100]
     },
     {
       "parameters": {
@@ -75,7 +87,7 @@
       "name": "Extract Plan Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 400]
+      "position": [460, 200]
     },
     {
       "parameters": {
@@ -83,6 +95,16 @@
       },
       "id": "code_extract_tasks",
       "name": "Extract Tasks Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract envelope read request\nconst data = $('Prepare Downloads').first().json;\nreturn [{ json: data.downloads.envelope }];"
+      },
+      "id": "code_extract_envelope",
+      "name": "Extract Envelope Request",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [460, 500]
@@ -98,30 +120,42 @@
       "name": "Merge Downloads",
       "type": "n8n-nodes-base.merge",
       "typeVersion": 2.1,
-      "position": [900, 300],
+      "position": [900, 250],
       "notes": "Combine all downloaded artifacts"
     },
     {
       "parameters": {
-        "jsCode": "// T072: Parse current task from tasks.md based on task_number\nconst items = $input.all();\nconst inputData = $('Prepare Downloads').first().json;\n\nlet specContent = '';\nlet planContent = '';\nlet tasksContent = '';\n\nfor (const item of items) {\n  if (item.json.blob_path?.includes('spec.md')) {\n    specContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('plan.md')) {\n    planContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('tasks.md')) {\n    tasksContent = item.json.content || '';\n  }\n}\n\nif (!specContent || !tasksContent) {\n  throw new Error('Failed to download required artifacts');\n}\n\n// T072: Parse current task from tasks.md\nconst taskNumber = inputData.current_task_number;\nconst taskPattern = new RegExp(`- \\\\[ \\\\] T0*${taskNumber}\\\\s+([^\\\\n]+(?:\\\\n\\\\s+[^\\\\n-]+)*)`, 'm');\nconst taskMatch = tasksContent.match(taskPattern);\n\nlet currentTask = null;\nif (taskMatch) {\n  currentTask = taskMatch[0].trim();\n} else {\n  // Try alternate pattern\n  const altPattern = new RegExp(`T0*${taskNumber}[^\\\\n]*`, 'i');\n  const altMatch = tasksContent.match(altPattern);\n  if (altMatch) {\n    currentTask = altMatch[0].trim();\n  }\n}\n\nif (!currentTask) {\n  throw new Error(`Could not find task T${taskNumber} in tasks.md`);\n}\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    current_task_number: taskNumber,\n    current_task: currentTask,\n    spec_content: specContent,\n    plan_content: planContent,\n    tasks_content: tasksContent,\n    feedback: inputData.feedback\n  }\n}];"
+        "workflowId": "={{ $env.GITHUB_TOKEN_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_github_token",
+      "name": "Get GitHub Token",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [900, 450],
+      "notes": "013: Get GitHub App token for repo operations"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T072: Parse current task and repository from downloads\nconst items = $input.all();\nconst inputData = $('Prepare Downloads').first().json;\nconst githubToken = $('Get GitHub Token').first().json;\n\nlet specContent = '';\nlet planContent = '';\nlet tasksContent = '';\nlet repository = '';\n\nfor (const item of items) {\n  if (item.json.blob_path?.includes('spec.md')) {\n    specContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('plan.md')) {\n    planContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('tasks.md')) {\n    tasksContent = item.json.content || '';\n  } else if (item.json.task_envelope?.repository) {\n    repository = item.json.task_envelope.repository;\n  }\n}\n\nif (!specContent || !tasksContent) {\n  throw new Error('Failed to download required artifacts');\n}\n\nif (!repository) {\n  throw new Error('No repository URL found in task envelope');\n}\n\n// T072: Parse current task from tasks.md\nconst taskNumber = inputData.current_task_number;\nconst taskPattern = new RegExp(`- \\\\[ \\\\] T0*${taskNumber}\\\\s+([^\\\\n]+(?:\\\\n\\\\s+[^\\\\n-]+)*)`, 'm');\nconst taskMatch = tasksContent.match(taskPattern);\n\nlet currentTask = null;\nif (taskMatch) {\n  currentTask = taskMatch[0].trim();\n} else {\n  // Try alternate pattern\n  const altPattern = new RegExp(`T0*${taskNumber}[^\\\\n]*`, 'i');\n  const altMatch = tasksContent.match(altPattern);\n  if (altMatch) {\n    currentTask = altMatch[0].trim();\n  }\n}\n\nif (!currentTask) {\n  throw new Error(`Could not find task T${taskNumber} in tasks.md`);\n}\n\n// Extract repo shorthand (owner/repo) from full URL\nconst repoShorthand = repository.replace('https://github.com/', '').replace(/\\/$/, '');\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    current_task_number: taskNumber,\n    current_task: currentTask,\n    spec_content: specContent,\n    plan_content: planContent,\n    tasks_content: tasksContent,\n    feedback: inputData.feedback,\n    repository: repository,\n    repo_shorthand: repoShorthand,\n    github_token: githubToken.success ? githubToken.token : null\n  }\n}];"
       },
       "id": "code_parse_current_task",
       "name": "Parse Current Task",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1120, 300],
-      "notes": "T072: Extract current task from tasks.md"
+      "notes": "T072: Extract current task from tasks.md and repository from envelope"
     },
     {
       "parameters": {
-        "jsCode": "// T073-T074: Build implementation prompt using dev-agent.md template\nconst data = $input.first().json;\n\n// T074: Context management - create summaries to stay within budget\nconst specSummary = data.spec_content.length > 4000 \n  ? data.spec_content.substring(0, 4000) + '\\n[Truncated...]'\n  : data.spec_content;\n\nconst planSummary = data.plan_content.length > 3000\n  ? data.plan_content.substring(0, 3000) + '\\n[Truncated...]'\n  : data.plan_content;\n\n// Build the system prompt with Dev Agent implementation behavior\nconst systemPrompt = `You are a Senior Software Engineer implementing a feature for the autonomous dev team.\n\n## Behavior: /speckit.implement\n\nYou are implementing task T${data.current_task_number}. Follow these rules:\n\n1. **Read First**: Understand existing code patterns before changing anything\n2. **Minimal Changes**: Implement only what the task requires - no refactoring\n3. **Follow Patterns**: Match existing code style exactly\n4. **Test Coverage**: Write tests for new functionality\n5. **Atomic Commits**: Each logical change gets its own commit\n\n## Git Workflow\n\n- Branch: feat/${data.task_id}-task-${data.current_task_number}\n- Commit format: type(scope): description\n- PR description must reference the task\n\n## Output Format\n\nYour response MUST end with a YAML block:\n\n\\`\\`\\`yaml\nstatus: success | blocked | error\npr_url: \"https://github.com/...\"\nbranch: \"feat/${data.task_id}-task-${data.current_task_number}\"\ncommits:\n  - sha: \"abc1234\"\n    message: \"feat(scope): description\"\nsummary: |\n  Brief description of changes\ndeviations: []\nblocked_reason: \"\" # only if blocked\n\\`\\`\\`\n\n## Constraints\n\n- Do NOT modify files outside the task scope\n- Do NOT refactor unrelated code\n- Do NOT add features not in the specification\n- Do NOT introduce security vulnerabilities`;\n\n// Build user prompt with context\nlet userPrompt = `## Current Task\n\n**Task ID**: ${data.task_id}\n**Task Number**: T${data.current_task_number}\n\n\\`\\`\\`\n${data.current_task}\n\\`\\`\\`\n\n## Specification Summary\n\n${specSummary}\n\n## Implementation Plan Summary\n\n${planSummary}`;\n\n// Add feedback if this is a retry\nif (data.feedback) {\n  userPrompt += `\\n\\n## Feedback to Address\\n\\nThis is a retry. Please address the following feedback:\\n\\n${data.feedback}`;\n}\n\nuserPrompt += `\\n\\n---\\n\\nPlease implement this task. Create the necessary code changes, commits, and PR. End your response with the YAML status block.`;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task_number,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'dev'\n  }\n}];"
+        "jsCode": "// 013: Build implementation prompt with REAL CODE workflow\nconst data = $input.first().json;\n\n// Context management - create summaries to stay within budget\nconst specSummary = data.spec_content.length > 4000 \n  ? data.spec_content.substring(0, 4000) + '\\n[Truncated...]'\n  : data.spec_content;\n\nconst planSummary = data.plan_content.length > 3000\n  ? data.plan_content.substring(0, 3000) + '\\n[Truncated...]'\n  : data.plan_content;\n\n// GitHub token setup command (if token available)\nconst tokenSetup = data.github_token \n  ? `# Authenticate GitHub CLI\\nexport GH_TOKEN=\"${data.github_token}\"\\n\\n`\n  : '# Note: GitHub token not available - use existing authentication\\n\\n';\n\n// Build the system prompt with REAL CODE workflow\nconst systemPrompt = `You are performing the IMPLEMENTATION phase as a Dev Agent.\n\nYou are a Senior Software Engineer implementing exactly what is specified.\n\n## MANDATORY WORKFLOW (FOLLOW EXACTLY - DO NOT SKIP STEPS)\n\n### Step 1: Set Up GitHub Authentication\n\\`\\`\\`bash\n${tokenSetup}\\`\\`\\`\n\n### Step 2: Clone Repository\n\\`\\`\\`bash\ngh repo clone ${data.repo_shorthand} /tmp/workspace/${data.task_id}\ncd /tmp/workspace/${data.task_id}\n\\`\\`\\`\n\n### Step 3: Create Feature Branch\n\\`\\`\\`bash\ngit checkout -b feat/${data.task_id}\n\\`\\`\\`\n\n### Step 4: Explore Codebase\n- Read the project structure\n- Identify relevant files for the task\n- Understand existing patterns and conventions\n\n### Step 5: Implement Changes\n- Make changes per the task specification\n- Follow existing code style\n- Keep changes focused and minimal\n\n### Step 6: Build Verification (CRITICAL - DO NOT SKIP)\nDetect project type and run appropriate build command:\n- If package.json exists: \\`npm install && npm run build\\` or \\`npm run compile\\`\n- If *.csproj exists: \\`dotnet restore && dotnet build\\`\n- If Cargo.toml exists: \\`cargo build\\`\n- If Makefile exists: \\`make\\`\n\n**If build fails:**\n1. Read the error output carefully\n2. Fix the issue (typos, missing imports, type errors)\n3. Retry build (max 3 attempts)\n4. If still failing after 3 attempts, report as BLOCKED\n\n### Step 7: Run Tests (if available)\n- If package.json exists: \\`npm test\\`\n- If *.csproj exists: \\`dotnet test\\`\n- If tests fail, fix them before proceeding\n\n### Step 8: Commit Changes\n\\`\\`\\`bash\ngit add .\ngit commit -m \"feat(${data.task_id}): [brief description of changes]\"\n\\`\\`\\`\n\n### Step 9: Push and Create PR\n\\`\\`\\`bash\ngit push -u origin feat/${data.task_id}\ngh pr create --title \"[Task ${data.task_id}] [Brief Title]\" --body \"## Summary\n[Description of changes]\n\n## Changes Made\n- [List of changes]\n\n## Testing\n- [How it was tested]\n\n---\n*Automated PR from Dev Agent*\"\n\\`\\`\\`\n\n### Step 10: Report Results\nYour response MUST end with a YAML block:\n\n\\`\\`\\`yaml\nstatus: success | blocked | error\npr_url: \"https://github.com/${data.repo_shorthand}/pull/XX\"\nbranch: \"feat/${data.task_id}\"\nbuild_attempts: 1\nbuild_output: |\n  [Brief summary of build output]\ncommits:\n  - sha: \"abc1234\"\n    message: \"feat(scope): description\"\nsummary: |\n  Brief description of changes\nblocked_reason: \"\" # only if blocked\n\\`\\`\\`\n\n## CRITICAL RULES\n1. You MUST clone the repository using \\`gh repo clone\\` - do not simulate\n2. You MUST run the build command - do not skip\n3. You MUST create a real PR using \\`gh pr create\\` - do not just describe what you would do\n4. Build errors MUST be fixed before committing (max 3 attempts)\n5. The PR URL MUST be included in your output\n6. Do NOT modify files outside the task scope\n7. Do NOT refactor unrelated code\n8. Do NOT add features not in the specification\n9. Do NOT introduce security vulnerabilities`;\n\n// Build user prompt with context\nlet userPrompt = `## Current Task\n\n**Task ID**: ${data.task_id}\n**Task Number**: T${data.current_task_number}\n**Repository**: ${data.repository}\n\n\\`\\`\\`\n${data.current_task}\n\\`\\`\\`\n\n## Specification Summary\n\n${specSummary}\n\n## Implementation Plan Summary\n\n${planSummary}`;\n\n// Add feedback if this is a retry\nif (data.feedback) {\n  userPrompt += `\\n\\n## Feedback to Address\\n\\nThis is a retry. Please address the following feedback:\\n\\n${data.feedback}`;\n}\n\nuserPrompt += `\\n\\n---\\n\\nPlease implement this task by following the MANDATORY WORKFLOW above. Clone the repository, make the changes, verify the build passes, and create a PR. End your response with the YAML status block.`;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task_number,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'dev',\n    repository: data.repository,\n    timeout_ms: 3600000  // 60 minutes for git operations\n  }\n}];"
       },
       "id": "code_build_prompt",
       "name": "Build Implementation Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1340, 300],
-      "notes": "T073-T074: Dev Agent prompt with context management"
+      "notes": "013: Dev Agent prompt with REAL CODE clone/build/PR workflow"
     },
     {
       "parameters": {
@@ -137,14 +171,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// T076: Parse PR URL and commit SHA from agent output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Implementation Prompt').first().json;\n\nif (!agentResponse.success) {\n  throw new Error(`Agent Runner failed: ${agentResponse.error || 'Unknown error'}`);\n}\n\nconst output = agentResponse.output || '';\n\n// Parse YAML block from end of output\nlet status = 'error';\nlet prUrl = null;\nlet branch = null;\nlet commits = [];\nlet summary = '';\nlet deviations = [];\nlet blockedReason = null;\n\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```\\s*$/);\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse status\n  const statusMatch = yamlContent.match(/status:\\s*(\\S+)/);\n  if (statusMatch) {\n    status = statusMatch[1].replace(/[\"']/g, '');\n  }\n  \n  // Parse PR URL\n  const prMatch = yamlContent.match(/pr_url:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n  if (prMatch) {\n    prUrl = prMatch[1];\n  }\n  \n  // Parse branch\n  const branchMatch = yamlContent.match(/branch:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n  if (branchMatch) {\n    branch = branchMatch[1];\n  }\n  \n  // Parse commits (simplified)\n  const commitMatches = yamlContent.matchAll(/sha:\\s*[\"']?([^\\s\\n\"']+)[\"']?/g);\n  for (const match of commitMatches) {\n    commits.push({ sha: match[1] });\n  }\n  \n  // Parse summary\n  const summaryMatch = yamlContent.match(/summary:\\s*\\|?\\n?\\s*([^\\n]+)/);\n  if (summaryMatch) {\n    summary = summaryMatch[1].trim();\n  }\n  \n  // Parse blocked reason\n  const blockedMatch = yamlContent.match(/blocked_reason:\\s*[\"']?([^\\n]+)[\"']?/);\n  if (blockedMatch && blockedMatch[1].trim()) {\n    blockedReason = blockedMatch[1].trim();\n  }\n}\n\nreturn [{\n  json: {\n    task_id: previousData.task_id,\n    current_task_number: previousData.current_task_number,\n    status,\n    pr_url: prUrl,\n    branch,\n    commits,\n    summary,\n    deviations,\n    blocked_reason: blockedReason,\n    raw_output: output\n  }\n}];"
+        "jsCode": "// T076: Parse PR URL and commit SHA from agent output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Implementation Prompt').first().json;\n\nif (!agentResponse.success) {\n  throw new Error(`Agent Runner failed: ${agentResponse.error || 'Unknown error'}`);\n}\n\nconst output = agentResponse.output || '';\n\n// Parse YAML block from end of output\nlet status = 'error';\nlet prUrl = null;\nlet branch = null;\nlet commits = [];\nlet summary = '';\nlet buildAttempts = 1;\nlet buildOutput = '';\nlet blockedReason = null;\n\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```\\s*$/);\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse status\n  const statusMatch = yamlContent.match(/status:\\s*(\\S+)/);\n  if (statusMatch) {\n    status = statusMatch[1].replace(/[\"']/g, '');\n  }\n  \n  // Parse PR URL\n  const prMatch = yamlContent.match(/pr_url:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n  if (prMatch) {\n    prUrl = prMatch[1];\n  }\n  \n  // Parse branch\n  const branchMatch = yamlContent.match(/branch:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n  if (branchMatch) {\n    branch = branchMatch[1];\n  }\n  \n  // Parse build_attempts\n  const attemptsMatch = yamlContent.match(/build_attempts:\\s*(\\d+)/);\n  if (attemptsMatch) {\n    buildAttempts = parseInt(attemptsMatch[1], 10);\n  }\n  \n  // Parse commits (simplified)\n  const commitMatches = yamlContent.matchAll(/sha:\\s*[\"']?([^\\s\\n\"']+)[\"']?/g);\n  for (const match of commitMatches) {\n    commits.push({ sha: match[1] });\n  }\n  \n  // Parse summary\n  const summaryMatch = yamlContent.match(/summary:\\s*\\|?\\n?\\s*([^\\n]+)/);\n  if (summaryMatch) {\n    summary = summaryMatch[1].trim();\n  }\n  \n  // Parse blocked reason\n  const blockedMatch = yamlContent.match(/blocked_reason:\\s*[\"']?([^\\n]+)[\"']?/);\n  if (blockedMatch && blockedMatch[1].trim()) {\n    blockedReason = blockedMatch[1].trim();\n  }\n}\n\nreturn [{\n  json: {\n    task_id: previousData.task_id,\n    current_task_number: previousData.current_task_number,\n    repository: previousData.repository,\n    status,\n    pr_url: prUrl,\n    branch,\n    build_attempts: buildAttempts,\n    commits,\n    summary,\n    blocked_reason: blockedReason,\n    raw_output: output\n  }\n}];"
       },
       "id": "code_parse_output",
       "name": "Parse Implementation Output",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [1780, 300],
-      "notes": "T076: Parse PR URL and commits from output"
+      "notes": "T076: Parse PR URL, build_attempts, and commits from output"
     },
     {
       "parameters": {
@@ -189,7 +223,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// T077: Prepare task envelope update with PR info\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'read',\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    branch: data.branch,\n    commits: data.commits,\n    summary: data.summary,\n    current_task_number: data.current_task_number\n  }\n}];"
+        "jsCode": "// T077: Prepare task envelope update with PR info\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'read',\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    branch: data.branch,\n    build_attempts: data.build_attempts,\n    commits: data.commits,\n    summary: data.summary,\n    current_task_number: data.current_task_number\n  }\n}];"
       },
       "id": "code_prepare_envelope_read",
       "name": "Prepare Envelope Read",
@@ -204,7 +238,7 @@
         "options": {}
       },
       "id": "call_blob_read_envelope",
-      "name": "Read Task Envelope",
+      "name": "Read Task Envelope for Update",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
       "position": [2440, 200],
@@ -212,14 +246,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// T077: Update task envelope with PR info\nconst readResult = $input.first().json;\nconst updateData = $('Prepare Envelope Read').first().json;\n\nif (!readResult.success) {\n  throw new Error(`Failed to read task envelope: ${readResult.error || 'Unknown error'}`);\n}\n\nconst envelope = readResult.task_envelope;\nconst now = new Date().toISOString();\n\n// Update implementation phase with PR info\nenvelope.phases.implementation = {\n  ...envelope.phases.implementation,\n  status: 'in_progress',\n  current_task: updateData.current_task_number,\n  pr_url: updateData.pr_url,\n  branch: updateData.branch,\n  commits: [...(envelope.phases.implementation?.commits || []), ...updateData.commits.map(c => c.sha)]\n};\n\nenvelope.version = (envelope.version || 1) + 1;\n\nreturn [{\n  json: {\n    operation: 'update',\n    task_id: updateData.task_id,\n    task_envelope: envelope\n  }\n}];"
+        "jsCode": "// T077: Update task envelope with PR info and build_attempts\nconst readResult = $input.first().json;\nconst updateData = $('Prepare Envelope Read').first().json;\n\nif (!readResult.success) {\n  throw new Error(`Failed to read task envelope: ${readResult.error || 'Unknown error'}`);\n}\n\nconst envelope = readResult.task_envelope;\nconst now = new Date().toISOString();\n\n// Update implementation phase with PR info and build metrics\nenvelope.phases.implementation = {\n  ...envelope.phases.implementation,\n  status: 'completed',\n  completed_at: now,\n  current_task: updateData.current_task_number,\n  pr_url: updateData.pr_url,\n  branch_name: updateData.branch,\n  build_attempts: updateData.build_attempts,\n  commits: [...(envelope.phases.implementation?.commits || []), ...updateData.commits.map(c => c.sha)]\n};\n\n// Also store PR URL in release phase for downstream access\nenvelope.phases.release = {\n  ...envelope.phases.release,\n  pr_url: updateData.pr_url\n};\n\nenvelope.version = (envelope.version || 1) + 1;\n\nreturn [{\n  json: {\n    operation: 'update',\n    task_id: updateData.task_id,\n    task_envelope: envelope\n  }\n}];"
       },
       "id": "code_prepare_envelope_update",
       "name": "Prepare Envelope Update",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [2660, 200],
-      "notes": "T077: Update envelope with PR info"
+      "notes": "T077: Update envelope with PR info and build metrics"
     },
     {
       "parameters": {
@@ -235,7 +269,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Return success result\nconst updateData = $('Prepare Envelope Read').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: updateData.task_id,\n    status: 'success',\n    pr_url: updateData.pr_url,\n    branch: updateData.branch,\n    commits: updateData.commits,\n    summary: updateData.summary\n  }\n}];"
+        "jsCode": "// Cleanup workspace after successful implementation\nconst updateData = $('Prepare Envelope Read').first().json;\n\n// Return success with cleanup note\nreturn [{\n  json: {\n    success: true,\n    task_id: updateData.task_id,\n    status: 'success',\n    pr_url: updateData.pr_url,\n    branch: updateData.branch,\n    build_attempts: updateData.build_attempts,\n    commits: updateData.commits,\n    summary: updateData.summary,\n    cleanup_path: `/tmp/workspace/${updateData.task_id}`\n  }\n}];"
       },
       "id": "code_return_success",
       "name": "Return Success",
@@ -246,7 +280,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// T078: Handle blocked status - escalate to human\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    status: 'blocked',\n    blocked_reason: data.blocked_reason,\n    needs_human: true\n  }\n}];"
+        "jsCode": "// T078: Handle blocked status - escalate to human\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    status: 'blocked',\n    blocked_reason: data.blocked_reason || 'Build failed after 3 attempts',\n    build_attempts: data.build_attempts,\n    needs_human: true,\n    cleanup_path: `/tmp/workspace/${data.task_id}`\n  }\n}];"
       },
       "id": "code_return_blocked",
       "name": "Return Blocked",
@@ -257,7 +291,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// T078: Handle error status\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    status: 'error',\n    error: data.raw_output?.substring(0, 500) || 'Implementation failed'\n  }\n}];"
+        "jsCode": "// T078: Handle error status\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    status: 'error',\n    error: data.raw_output?.substring(0, 500) || 'Implementation failed',\n    cleanup_path: `/tmp/workspace/${data.task_id}`\n  }\n}];"
       },
       "id": "code_return_error",
       "name": "Return Error",
@@ -297,7 +331,9 @@
         [
           { "node": "Extract Spec Request", "type": "main", "index": 0 },
           { "node": "Extract Plan Request", "type": "main", "index": 0 },
-          { "node": "Extract Tasks Request", "type": "main", "index": 0 }
+          { "node": "Extract Tasks Request", "type": "main", "index": 0 },
+          { "node": "Extract Envelope Request", "type": "main", "index": 0 },
+          { "node": "Get GitHub Token", "type": "main", "index": 0 }
         ]
       ]
     },
@@ -316,6 +352,11 @@
         [{ "node": "Download tasks.md", "type": "main", "index": 0 }]
       ]
     },
+    "Extract Envelope Request": {
+      "main": [
+        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
     "Download spec.md": {
       "main": [
         [{ "node": "Merge Downloads", "type": "main", "index": 0 }]
@@ -331,9 +372,19 @@
         [{ "node": "Merge Downloads", "type": "main", "index": 2 }]
       ]
     },
+    "Read Task Envelope": {
+      "main": [
+        [{ "node": "Merge Downloads", "type": "main", "index": 3 }]
+      ]
+    },
     "Merge Downloads": {
       "main": [
         [{ "node": "Parse Current Task", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get GitHub Token": {
+      "main": [
+        [{ "node": "Parse Current Task", "type": "main", "index": 1 }]
       ]
     },
     "Parse Current Task": {
@@ -365,10 +416,10 @@
     },
     "Prepare Envelope Read": {
       "main": [
-        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+        [{ "node": "Read Task Envelope for Update", "type": "main", "index": 0 }]
       ]
     },
-    "Read Task Envelope": {
+    "Read Task Envelope for Update": {
       "main": [
         [{ "node": "Prepare Envelope Update", "type": "main", "index": 0 }]
       ]
@@ -399,7 +450,8 @@
   "tags": [
     { "name": "stage-3" },
     { "name": "dev-agent" },
-    { "name": "autonomous-agents" }
+    { "name": "autonomous-agents" },
+    { "name": "013-agent-repo-clone" }
   ],
   "pinData": {},
   "meta": {

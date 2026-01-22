@@ -1,0 +1,107 @@
+.container {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fff3cd;
+  border-left: 4px solid #ff6b6b;
+  border-radius: 4px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.retryButton,
+.diagnosticsButton,
+.escalateButton,
+.submitButton,
+.cancelButton {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.retryButton {
+  background: #4caf50;
+  color: white;
+}
+
+.retryButton:hover:not(:disabled) {
+  background: #45a049;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.diagnosticsButton {
+  background: #2196f3;
+  color: white;
+}
+
+.diagnosticsButton:hover {
+  background: #1976d2;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.escalateButton {
+  background: #ff9800;
+  color: white;
+}
+
+.escalateButton:hover:not(:disabled) {
+  background: #e68900;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.retryButton:disabled,
+.escalateButton:disabled,
+.submitButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.escalationInput {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.input:focus {
+  outline: none;
+  border-color: #2196f3;
+  box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
+}
+
+.submitButton {
+  background: #ff9800;
+  color: white;
+}
+
+.submitButton:hover:not(:disabled) {
+  background: #e68900;
+}
+
+.cancelButton {
+  background: #757575;
+  color: white;
+}
+
+.cancelButton:hover {
+  background: #616161;
+}
