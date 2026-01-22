@@ -1,0 +1,447 @@
+openapi: 3.0.3
+info:
+  title: Dashboard Tasks API
+  description: API endpoints for stuck task management operations
+  version: 1.0.0
+  contact:
+    name: II-US Development Team
+    url: https://ii-us.com
+
+servers:
+  - url: https://ops-dashboard.ii-us.com/api
+    description: Production dashboard API
+  - url: http://localhost:3001/api
+    description: Local development
+
+tags:
+  - name: tasks
+    description: Task management operations
+  - name: diagnostics
+    description: Task diagnostic and troubleshooting
+
+paths:
+  /tasks/{taskId}/retry:
+    post:
+      summary: Retry a stuck task
+      description: |
+        Attempts to retry a stuck task by restarting the n8n workflow execution
+        from the current phase. This does NOT support checkpoint-based resumption;
+        it performs a full workflow restart.
+
+        The retry will fail if:
+        - Task is not stuck (< 30 minutes in current phase)
+        - Task is already running
+        - Underlying issues (e.g., expired GitHub token) are not resolved
+      operationId: retryTask
+      tags:
+        - tasks
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: Unique task identifier (e.g., TASK-001, FEAT-1234567890-abc)
+          schema:
+            type: string
+            pattern: '^[A-Z]+-[0-9a-z-]+$'
+            example: TASK-001
+      responses:
+        '200':
+          description: Retry initiated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RetryTaskResponse'
+              examples:
+                retrying:
+                  summary: Retry initiated
+                  value:
+                    status: retrying
+                    executionId: '12345'
+                    message: 'Task retry initiated successfully'
+                    taskId: 'TASK-001'
+                    timestamp: '2026-01-21T08:30:00Z'
+                alreadyRunning:
+                  summary: Task already running
+                  value:
+                    status: already-running
+                    message: 'Task is currently executing and cannot be retried'
+                    taskId: 'TASK-001'
+                    timestamp: '2026-01-21T08:30:00Z'
+        '400':
+          description: Invalid request (task not stuck, invalid task ID)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Bad Request'
+                message: 'Task TASK-001 is not stuck (current duration: 15 minutes)'
+                statusCode: 400
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Not Found'
+                message: 'Task TASK-001 not found in Azure Blob Storage'
+                statusCode: 404
+        '500':
+          description: Internal server error (n8n API failure, blob storage error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Internal Server Error'
+                message: 'Failed to communicate with n8n API'
+                statusCode: 500
+                details:
+                  n8nError: 'Connection timeout'
+
+  /tasks/{taskId}/diagnostics:
+    get:
+      summary: Get diagnostic information for a task
+      description: |
+        Retrieves detailed diagnostic information for a stuck task, including:
+        - Last error message and stack trace
+        - Retry history
+        - System health status (n8n, agent, storage)
+        - Execution context
+
+        This endpoint is used by the "Why Stuck?" modal to help operators
+        troubleshoot task failures.
+      operationId: getTaskDiagnostics
+      tags:
+        - diagnostics
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: Unique task identifier
+          schema:
+            type: string
+            pattern: '^[A-Z]+-[0-9a-z-]+$'
+            example: TASK-001
+      responses:
+        '200':
+          description: Diagnostic information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskDiagnostics'
+              example:
+                taskId: 'TASK-001'
+                currentPhase: 'implementation'
+                stuckSince: '2026-01-21T07:00:00Z'
+                stuckDuration: 5400000
+                lastError:
+                  message: 'GitHub authentication failed'
+                  phase: 'implementation'
+                  timestamp: '2026-01-21T07:00:00Z'
+                  logs:
+                    - 'gh: authentication required'
+                    - 'exit code: 57'
+                  errorCode: 'GH_AUTH_FAILED'
+                executionId: '98765'
+                retryHistory:
+                  - timestamp: '2026-01-21T07:30:00Z'
+                    result: 'failure'
+                    message: 'Retry failed - GitHub token still expired'
+                    executionId: '98766'
+                systemState:
+                  n8nStatus: 'healthy'
+                  agentStatus: 'healthy'
+                  storageStatus: 'healthy'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+
+  /tasks/{taskId}/escalate:
+    post:
+      summary: Escalate a stuck task to on-call team
+      description: |
+        Escalates a stuck task by sending a Teams notification to the on-call team.
+        The notification includes:
+        - Task ID and current phase
+        - Time stuck in current phase
+        - Last error message
+        - Direct link to dashboard task view
+
+        After escalation, the task status is updated to "Awaiting Human Review".
+      operationId: escalateTask
+      tags:
+        - tasks
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: Unique task identifier
+          schema:
+            type: string
+            pattern: '^[A-Z]+-[0-9a-z-]+$'
+            example: TASK-001
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Optional escalation reason provided by operator
+                  maxLength: 500
+                  example: 'GitHub token expired and automatic retry failed'
+      responses:
+        '200':
+          description: Task escalated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EscalateTaskResponse'
+              example:
+                taskId: 'TASK-001'
+                escalatedAt: '2026-01-21T08:45:00Z'
+                teamsMessageId: 'msg-abc123'
+                status: 'pending'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '500':
+          description: Internal server error (Teams webhook failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Internal Server Error'
+                message: 'Failed to send Teams notification'
+                statusCode: 500
+                details:
+                  teamsError: 'Webhook URL returned 404'
+
+components:
+  schemas:
+    RetryTaskResponse:
+      type: object
+      required:
+        - status
+        - message
+        - taskId
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum:
+            - retrying
+            - failed
+            - already-running
+          description: Status of the retry operation
+        executionId:
+          type: string
+          description: n8n execution ID for the new workflow run (if status is 'retrying')
+          example: '12345'
+        message:
+          type: string
+          description: Human-readable status message
+          example: 'Task retry initiated successfully'
+        taskId:
+          type: string
+          description: Task identifier
+          example: 'TASK-001'
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of the retry attempt
+
+    TaskDiagnostics:
+      type: object
+      required:
+        - taskId
+        - currentPhase
+        - stuckSince
+        - stuckDuration
+        - lastError
+        - executionId
+        - retryHistory
+        - systemState
+      properties:
+        taskId:
+          type: string
+          example: 'TASK-001'
+        currentPhase:
+          type: string
+          enum:
+            - intake
+            - planning
+            - implementation
+            - verification
+            - review
+            - release
+        stuckSince:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp when task became stuck
+        stuckDuration:
+          type: integer
+          description: Duration in milliseconds
+          example: 5400000
+        lastError:
+          type: object
+          required:
+            - message
+            - phase
+            - timestamp
+            - logs
+          properties:
+            message:
+              type: string
+              description: Error message
+              example: 'GitHub authentication failed'
+            phase:
+              type: string
+              description: Phase where error occurred
+            timestamp:
+              type: string
+              format: date-time
+            logs:
+              type: array
+              items:
+                type: string
+              description: Relevant log excerpts (last 10 lines)
+              maxItems: 10
+            errorCode:
+              type: string
+              description: Optional error code
+              example: 'GH_AUTH_FAILED'
+            stackTrace:
+              type: string
+              description: Full stack trace (if available)
+        executionId:
+          type: string
+          description: Current n8n execution ID
+          example: '98765'
+        retryHistory:
+          type: array
+          items:
+            type: object
+            required:
+              - timestamp
+              - result
+              - message
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+              result:
+                type: string
+                enum:
+                  - success
+                  - failure
+              message:
+                type: string
+              executionId:
+                type: string
+                description: Execution ID for this retry attempt
+        systemState:
+          type: object
+          required:
+            - n8nStatus
+            - agentStatus
+            - storageStatus
+          properties:
+            n8nStatus:
+              type: string
+              enum:
+                - healthy
+                - degraded
+                - down
+            agentStatus:
+              type: string
+              enum:
+                - healthy
+                - degraded
+                - down
+            storageStatus:
+              type: string
+              enum:
+                - healthy
+                - degraded
+                - down
+
+    EscalateTaskResponse:
+      type: object
+      required:
+        - taskId
+        - escalatedAt
+        - teamsMessageId
+        - status
+      properties:
+        taskId:
+          type: string
+          example: 'TASK-001'
+        escalatedAt:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of escalation
+        teamsMessageId:
+          type: string
+          description: Microsoft Teams message ID for tracking
+          example: 'msg-abc123'
+        status:
+          type: string
+          enum:
+            - pending
+          description: Escalation status (always 'pending' initially)
+
+    ApiError:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: 'Bad Request'
+        message:
+          type: string
+          description: Human-readable error message
+          example: 'Task TASK-001 is not stuck'
+        statusCode:
+          type: integer
+          description: HTTP status code
+          example: 400
+        details:
+          type: object
+          description: Optional additional error details
+          additionalProperties: true
+
+  securitySchemes:
+    azureAD:
+      type: oauth2
+      description: Azure AD OAuth2 authentication
+      flows:
+        authorizationCode:
+          authorizationUrl: https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize
+          tokenUrl: https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token
+          scopes:
+            api://dashboard/.default: Default access scope
+
+security:
+  - azureAD: []

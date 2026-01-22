@@ -12,13 +12,59 @@
     },
     {
       "parameters": {
-        "jsCode": "// T100: Prepare to download spec.md for acceptance criteria\nconst data = $input.first().json;\n\nif (!data.task_id || !data.pr_url) {\n  throw new Error('Missing required fields: task_id and pr_url');\n}\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-spec',\n    blob_path: `${data.task_id}/spec.md`,\n    task_id: data.task_id,\n    pr_url: data.pr_url\n  }\n}];"
+        "jsCode": "// Read task envelope to get repository URL\nconst data = $input.first().json;\n\nif (!data.task_id || !data.pr_url) {\n  throw new Error('Missing required fields: task_id and pr_url');\n}\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    task_id: data.task_id,\n    pr_url: data.pr_url\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_read",
+      "name": "Prepare Envelope Read",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "013: Prepare to read task envelope for repository URL"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_envelope",
+      "name": "Read Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "013: Download task envelope to get repository URL"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract repository URL from task envelope\nconst envelopeResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nif (!envelopeResult.success) {\n  throw new Error(`Failed to read task envelope: ${envelopeResult.error || 'Unknown error'}`);\n}\n\nconst envelopeContent = envelopeResult.content;\n\n// Parse repository from envelope (YAML format)\nconst repoMatch = envelopeContent.match(/repository:\\s*[\"']?([^\"'\\n]+)[\"']?/);\nconst repository = repoMatch ? repoMatch[1].trim() : null;\n\nif (!repository) {\n  throw new Error('Repository URL not found in task envelope');\n}\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    pr_url: inputData.pr_url,\n    repository: repository,\n    envelope_content: envelopeContent\n  }\n}];"
+      },
+      "id": "code_extract_repo",
+      "name": "Extract Repository URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "013: Extract repository URL from task envelope"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.GITHUB_TOKEN_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_github_token",
+      "name": "Get GitHub Token",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1120, 300],
+      "notes": "013: Get GitHub token for repository access"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T100: Prepare to download spec.md for acceptance criteria\nconst tokenResult = $input.first().json;\nconst repoData = $('Extract Repository URL').first().json;\n\nconst github_token = tokenResult.success ? tokenResult.token : null;\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-spec',\n    blob_path: `${repoData.task_id}/spec.md`,\n    task_id: repoData.task_id,\n    pr_url: repoData.pr_url,\n    repository: repoData.repository,\n    github_token: github_token\n  }\n}];"
       },
       "id": "code_prepare_download",
       "name": "Prepare Spec Download",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300],
+      "position": [1340, 300],
       "notes": "T100: Prepare download request for spec.md"
     },
     {
@@ -30,19 +76,19 @@
       "name": "Download spec.md",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [680, 300],
+      "position": [1560, 300],
       "notes": "T100: Download spec.md via Blob State Manager"
     },
     {
       "parameters": {
-        "jsCode": "// T101: Build QA verification prompt\nconst downloadResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nif (!downloadResult.success) {\n  throw new Error(`Failed to download spec.md: ${downloadResult.error || 'Unknown error'}`);\n}\n\nconst specContent = downloadResult.content;\n\n// Extract acceptance criteria from spec.md\nconst criteriaMatch = specContent.match(/## Acceptance Criteria[\\s\\S]*?(?=##|$)/i);\nconst acceptanceCriteria = criteriaMatch ? criteriaMatch[0] : 'No acceptance criteria found';\n\n// Build the system prompt with QA Agent verification behavior\nconst systemPrompt = `You are a Senior QA Engineer. Your role is to verify that code changes meet the specification requirements.\n\n## Behavior: Verification\n\nYou will:\n1. **Run Tests**: Execute the test suite and report results\n2. **Check Acceptance Criteria**: Verify each criterion is satisfied\n3. **Identify Issues**: Report any problems found\n4. **Security Check**: Look for obvious security vulnerabilities\n\n## Output Format\n\nYour response MUST include a YAML block with the verification report:\n\n\\`\\`\\`yaml\ntest_results:\n  passed: <number>\n  failed: <number>\n  skipped: <number>\n  \ncriteria_status:\n  - criterion: \"<acceptance criterion text>\"\n    status: passed | failed | untested\n    evidence: \"<how you verified this>\"\n    \nissues_found:\n  - severity: critical | major | minor\n    description: \"<issue description>\"\n    location: \"<file:line or test name>\"\n    suggested_fix: \"<optional suggestion>\"\n    \nrecommendation: approve | request_changes\nfeedback_for_dev: \"<specific items to address if request_changes>\"\n\\`\\`\\`\n\n## Guidelines\n\n- Run \\`npm test\\` or appropriate test command\n- Verify EACH acceptance criterion explicitly\n- If tests fail, include failure messages\n- Flag any security concerns (exposed secrets, injection risks)\n- Be specific in feedback - reference files and line numbers`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nVerify the implementation meets the specification requirements.\n\n## PR Information\n\n- Task ID: ${inputData.task_id}\n- PR URL: ${inputData.pr_url}\n\n## Specification\n\n${specContent}\n\n## Acceptance Criteria to Verify\n\n${acceptanceCriteria}\n\n---\n\nPlease run tests, verify each acceptance criterion, and provide your verification report.`;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    pr_url: inputData.pr_url,\n    spec_content: specContent,\n    acceptance_criteria: acceptanceCriteria,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'qa'\n  }\n}];"
+        "jsCode": "// T101: Build QA verification prompt with real code execution\nconst downloadResult = $input.first().json;\nconst inputData = $('Prepare Spec Download').first().json;\n\nif (!downloadResult.success) {\n  throw new Error(`Failed to download spec.md: ${downloadResult.error || 'Unknown error'}`);\n}\n\nconst specContent = downloadResult.content;\nconst github_token = inputData.github_token;\nconst repository = inputData.repository;\nconst pr_url = inputData.pr_url;\nconst task_id = inputData.task_id;\n\n// Extract acceptance criteria from spec.md\nconst criteriaMatch = specContent.match(/## Acceptance Criteria[\\s\\S]*?(?=##|$)/i);\nconst acceptanceCriteria = criteriaMatch ? criteriaMatch[0] : 'No acceptance criteria found';\n\n// Extract repo path from URL (e.g., 'ii-us/ExpenseTrack' from 'https://github.com/ii-us/ExpenseTrack')\nconst repoPath = repository.replace('https://github.com/', '');\n\n// Build GitHub authentication setup\nconst tokenSetup = github_token \n  ? `# Step 1: Authenticate GitHub CLI\\nexport GH_TOKEN=\"${github_token}\"\\n\\n# Verify authentication\\ngh auth status\\n\\n`\n  : '# Note: GitHub token not available - some operations may fail\\n\\n';\n\n// Build the system prompt with MANDATORY real code execution\nconst systemPrompt = `You are performing the VERIFICATION phase as a QA Agent.\n\nYou are a Senior QA Engineer verifying that the implementation meets the specification requirements.\n\n## ENVIRONMENT SETUP\n\n${tokenSetup}## MANDATORY WORKFLOW (FOLLOW EXACTLY IN ORDER)\n\n### Step 1: Set Up GitHub Authentication\n\\`\\`\\`bash\nexport GH_TOKEN=\"<provided above>\"\ngh auth status\n\\`\\`\\`\n\n### Step 2: Clone Repository and Checkout PR Branch\n\\`\\`\\`bash\n# Extract PR number from URL\nPR_NUMBER=$(echo \"${pr_url}\" | grep -oE '[0-9]+$')\n\n# Get branch name from PR\nBRANCH=$(gh pr view $PR_NUMBER --repo ${repoPath} --json headRefName -q '.headRefName')\n\n# Clone repository\ngh repo clone ${repoPath} /tmp/qa-workspace/${task_id}\n\n# Enter workspace and checkout PR branch\ncd /tmp/qa-workspace/${task_id}\ngit checkout $BRANCH\n\\`\\`\\`\n\n### Step 3: Review PR Changes\n\\`\\`\\`bash\n# See what files were changed in this PR\ngh pr diff $PR_NUMBER --repo ${repoPath}\n\\`\\`\\`\n\n### Step 4: Run Build (CRITICAL)\nVerify the code compiles/builds successfully:\n- If \\`package.json\\` exists: \\`npm install && npm run build\\`\n- If \\`*.csproj\\` exists: \\`dotnet restore && dotnet build\\`\n- If \\`Cargo.toml\\` exists: \\`cargo build\\`\n- If \\`Makefile\\` exists: \\`make\\`\n\n### Step 5: Run Tests (CRITICAL - MANDATORY)\nYou MUST run the actual test suite:\n- If \\`package.json\\` exists: \\`npm test\\`\n- If \\`*.csproj\\` exists: \\`dotnet test\\`\n- If \\`Cargo.toml\\` exists: \\`cargo test\\`\n- If \\`Makefile\\` with test target: \\`make test\\`\n\n**IMPORTANT**: Capture the actual test output - include pass/fail counts in your report.\n\n### Step 6: Manual Verification\n- Review the PR changes against the specification\n- Verify acceptance criteria are met\n- Check for edge cases and error handling\n- Look for security vulnerabilities\n\n### Step 7: Generate Report\nYour response MUST include a YAML block with the verification report:\n\n\\`\\`\\`yaml\nstatus: PASS | FAIL | BLOCKED\nverdict: APPROVED_FOR_REVIEW | RETURN_TO_IMPLEMENTATION | BLOCKED_FOR_HUMAN\n\ntest_results:\n  command_run: \"npm test\"  # The actual command you ran\n  passed: <number>\n  failed: <number>\n  skipped: <number>\n  coverage: \"<percentage if available>\"\n  \nbuild_results:\n  success: true | false\n  command: \"npm run build\"  # The actual command you ran\n  \ncriteria_status:\n  - criterion: \"<acceptance criterion text>\"\n    status: passed | failed | untested\n    evidence: \"<how you verified this - specific file:line or test output>\"\n    \nissues_found:\n  - severity: critical | major | minor\n    description: \"<issue description>\"\n    location: \"<file:line or test name>\"\n    suggested_fix: \"<optional suggestion>\"\n    \ntest_output: |\n  <Actual test output from running npm test / dotnet test - at least 20 lines>\n  \nfeedback_for_dev: \"<specific items to address if RETURN_TO_IMPLEMENTATION>\"\n\\`\\`\\`\n\n## VERDICT CRITERIA\n\n**PASS** (verdict: APPROVED_FOR_REVIEW):\n- All tests pass\n- Build succeeds\n- All acceptance criteria verified\n- No critical or major issues\n\n**FAIL** (verdict: RETURN_TO_IMPLEMENTATION):\n- Any test failures\n- Build failures\n- Acceptance criteria not met\n- Critical or major issues found\n\n**BLOCKED** (verdict: BLOCKED_FOR_HUMAN):\n- Cannot run tests (missing dependencies, infrastructure issues)\n- Unclear requirements need human clarification\n- Security concerns requiring human review\n\n## CRITICAL RULES\n\n1. You MUST clone the repository using \\`gh repo clone\\`\n2. You MUST checkout the actual PR branch\n3. You MUST run the actual test command - DO NOT SIMULATE TEST RESULTS\n4. You MUST include real test output in your report (at least 20 lines)\n5. FAIL verdict routes task back to implementation phase with feedback\n6. BLOCKED verdict routes to human checkpoint\n7. Only use PASS when ALL tests pass and ALL criteria verified`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nVerify the implementation meets the specification requirements by running REAL tests on REAL code.\n\n## PR Information\n\n- Task ID: ${task_id}\n- PR URL: ${pr_url}\n- Repository: ${repository}\n\n## Specification\n\n${specContent}\n\n## Acceptance Criteria to Verify\n\n${acceptanceCriteria}\n\n---\n\n## Instructions\n\n1. Clone the repository: \\`gh repo clone ${repoPath} /tmp/qa-workspace/${task_id}\\`\n2. Checkout the PR branch\n3. Run the build command\n4. Run the test command (npm test, dotnet test, etc.)\n5. Verify each acceptance criterion against the actual code\n6. Generate your verification report with REAL test output\n\nRemember: Include ACTUAL test output in your report - do not simulate results.`;\n\nreturn [{\n  json: {\n    task_id: task_id,\n    pr_url: pr_url,\n    repository: repository,\n    spec_content: specContent,\n    acceptance_criteria: acceptanceCriteria,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'qa',\n    timeout_ms: 3600000\n  }\n}];"
       },
       "id": "code_build_prompt",
       "name": "Build Verification Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300],
-      "notes": "T101: Build prompt using qa-agent.md template"
+      "position": [1780, 300],
+      "notes": "T101: Build prompt with real code clone and test execution - 013-agent-repo-clone"
     },
     {
       "parameters": {
@@ -53,29 +99,29 @@
       "name": "Call Agent Runner",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1120, 300],
-      "notes": "T102: Call Agent Runner with agent_role=qa"
+      "position": [2000, 300],
+      "notes": "T102: Call Agent Runner with agent_role=qa, timeout 60min"
     },
     {
       "parameters": {
-        "jsCode": "// T103: Parse verification report from output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Verification Prompt').first().json;\n\nif (!agentResponse.success) {\n  return [{\n    json: {\n      success: false,\n      task_id: previousData.task_id,\n      error: agentResponse.error || 'Agent Runner failed',\n      recommendation: 'error'\n    }\n  }];\n}\n\nconst output = agentResponse.output || '';\n\n// Parse the YAML verification report\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\n\nlet report = {\n  test_results: { passed: 0, failed: 0, skipped: 0 },\n  criteria_status: [],\n  issues_found: [],\n  recommendation: 'request_changes',\n  feedback_for_dev: 'Unable to parse verification report'\n};\n\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse test_results\n  const passedMatch = yamlContent.match(/passed:\\s*(\\d+)/);\n  const failedMatch = yamlContent.match(/failed:\\s*(\\d+)/);\n  const skippedMatch = yamlContent.match(/skipped:\\s*(\\d+)/);\n  \n  report.test_results = {\n    passed: passedMatch ? parseInt(passedMatch[1]) : 0,\n    failed: failedMatch ? parseInt(failedMatch[1]) : 0,\n    skipped: skippedMatch ? parseInt(skippedMatch[1]) : 0\n  };\n  \n  // Parse recommendation\n  const recMatch = yamlContent.match(/recommendation:\\s*(approve|request_changes)/);\n  report.recommendation = recMatch ? recMatch[1] : 'request_changes';\n  \n  // Parse feedback\n  const feedbackMatch = yamlContent.match(/feedback_for_dev:\\s*[\"']?([^\"'\\n]+)[\"']?/);\n  report.feedback_for_dev = feedbackMatch ? feedbackMatch[1].trim() : '';\n  \n  // Parse issues (simplified)\n  const issuesMatch = yamlContent.match(/issues_found:[\\s\\S]*?(?=recommendation:|$)/);\n  if (issuesMatch) {\n    const severityMatches = issuesMatch[0].match(/severity:\\s*(critical|major|minor)/g);\n    if (severityMatches) {\n      report.issues_found = severityMatches.map(m => ({\n        severity: m.replace('severity:', '').trim()\n      }));\n    }\n  }\n}\n\n// Determine if passed\nconst passed = report.recommendation === 'approve' && report.test_results.failed === 0;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: previousData.task_id,\n    pr_url: previousData.pr_url,\n    passed: passed,\n    report: report,\n    recommendation: report.recommendation,\n    test_results: report.test_results,\n    issues_count: report.issues_found.length,\n    feedback: report.feedback_for_dev,\n    raw_output: output\n  }\n}];"
+        "jsCode": "// T103: Parse verification report from output - updated for 013-agent-repo-clone\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Verification Prompt').first().json;\n\nif (!agentResponse.success) {\n  return [{\n    json: {\n      success: false,\n      task_id: previousData.task_id,\n      error: agentResponse.error || 'Agent Runner failed',\n      verdict: 'BLOCKED',\n      recommendation: 'error'\n    }\n  }];\n}\n\nconst output = agentResponse.output || '';\n\n// Parse the YAML verification report\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\n\nlet report = {\n  status: 'FAIL',\n  verdict: 'RETURN_TO_IMPLEMENTATION',\n  test_results: { passed: 0, failed: 0, skipped: 0, command_run: 'unknown' },\n  build_results: { success: false, command: 'unknown' },\n  criteria_status: [],\n  issues_found: [],\n  test_output: '',\n  feedback_for_dev: 'Unable to parse verification report'\n};\n\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse status and verdict\n  const statusMatch = yamlContent.match(/status:\\s*(PASS|FAIL|BLOCKED)/i);\n  report.status = statusMatch ? statusMatch[1].toUpperCase() : 'FAIL';\n  \n  const verdictMatch = yamlContent.match(/verdict:\\s*(APPROVED_FOR_REVIEW|RETURN_TO_IMPLEMENTATION|BLOCKED_FOR_HUMAN)/i);\n  report.verdict = verdictMatch ? verdictMatch[1].toUpperCase() : 'RETURN_TO_IMPLEMENTATION';\n  \n  // Parse test_results\n  const passedMatch = yamlContent.match(/passed:\\s*(\\d+)/);\n  const failedMatch = yamlContent.match(/failed:\\s*(\\d+)/);\n  const skippedMatch = yamlContent.match(/skipped:\\s*(\\d+)/);\n  const commandMatch = yamlContent.match(/command_run:\\s*[\"']?([^\"'\\n]+)[\"']?/);\n  \n  report.test_results = {\n    passed: passedMatch ? parseInt(passedMatch[1]) : 0,\n    failed: failedMatch ? parseInt(failedMatch[1]) : 0,\n    skipped: skippedMatch ? parseInt(skippedMatch[1]) : 0,\n    command_run: commandMatch ? commandMatch[1].trim() : 'unknown'\n  };\n  \n  // Parse build_results\n  const buildSuccessMatch = yamlContent.match(/build_results:[\\s\\S]*?success:\\s*(true|false)/i);\n  const buildCommandMatch = yamlContent.match(/build_results:[\\s\\S]*?command:\\s*[\"']?([^\"'\\n]+)[\"']?/);\n  report.build_results = {\n    success: buildSuccessMatch ? buildSuccessMatch[1].toLowerCase() === 'true' : false,\n    command: buildCommandMatch ? buildCommandMatch[1].trim() : 'unknown'\n  };\n  \n  // Parse test_output\n  const testOutputMatch = yamlContent.match(/test_output:\\s*\\|\\n([\\s\\S]*?)(?=\\n[a-z_]+:|$)/);\n  report.test_output = testOutputMatch ? testOutputMatch[1].trim() : '';\n  \n  // Parse feedback\n  const feedbackMatch = yamlContent.match(/feedback_for_dev:\\s*[\"']?([^\"'\\n]+)[\"']?/);\n  report.feedback_for_dev = feedbackMatch ? feedbackMatch[1].trim() : '';\n  \n  // Parse issues (simplified)\n  const issuesMatch = yamlContent.match(/issues_found:[\\s\\S]*?(?=test_output:|feedback_for_dev:|$)/);\n  if (issuesMatch) {\n    const severityMatches = issuesMatch[0].match(/severity:\\s*(critical|major|minor)/gi);\n    if (severityMatches) {\n      report.issues_found = severityMatches.map(m => ({\n        severity: m.replace('severity:', '').trim().toLowerCase()\n      }));\n    }\n  }\n}\n\n// Determine if passed based on status and verdict\nconst passed = report.status === 'PASS' && report.verdict === 'APPROVED_FOR_REVIEW';\nconst blocked = report.status === 'BLOCKED' || report.verdict === 'BLOCKED_FOR_HUMAN';\n\n// Map verdict to recommendation for backward compatibility\nlet recommendation = 'request_changes';\nif (report.verdict === 'APPROVED_FOR_REVIEW') recommendation = 'approve';\nelse if (report.verdict === 'BLOCKED_FOR_HUMAN') recommendation = 'blocked';\n\nreturn [{\n  json: {\n    success: true,\n    task_id: previousData.task_id,\n    pr_url: previousData.pr_url,\n    repository: previousData.repository,\n    passed: passed,\n    blocked: blocked,\n    status: report.status,\n    verdict: report.verdict,\n    recommendation: recommendation,\n    test_results: report.test_results,\n    build_results: report.build_results,\n    issues_count: report.issues_found.length,\n    has_critical_issues: report.issues_found.some(i => i.severity === 'critical'),\n    test_output_length: report.test_output.length,\n    feedback: report.feedback_for_dev,\n    raw_output: output\n  }\n}];"
       },
       "id": "code_parse_report",
       "name": "Parse Verification Report",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 300],
-      "notes": "T103: Parse verification report from output"
+      "position": [2220, 300],
+      "notes": "T103: Parse verification report with real test output - 013-agent-repo-clone"
     },
     {
       "parameters": {
-        "jsCode": "// T105: Prepare upload for verification report\nconst data = $input.first().json;\n\n// Get cycle count from task envelope (would need to fetch first in real impl)\nconst cycle = 1; // Simplified - would track from envelope\n\nconst reportContent = JSON.stringify({\n  task_id: data.task_id,\n  pr_url: data.pr_url,\n  timestamp: new Date().toISOString(),\n  cycle: cycle,\n  passed: data.passed,\n  recommendation: data.recommendation,\n  test_results: data.test_results,\n  issues_count: data.issues_count,\n  feedback: data.feedback\n}, null, 2);\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-verification',\n    blob_path: `${data.task_id}/verification-report-${cycle}.json`,\n    content: reportContent,\n    content_type: 'application/json',\n    task_id: data.task_id,\n    passed: data.passed,\n    recommendation: data.recommendation,\n    feedback: data.feedback,\n    pr_url: data.pr_url\n  }\n}];"
+        "jsCode": "// T105: Prepare upload for verification report\nconst data = $input.first().json;\n\n// Get cycle count from task envelope (would need to fetch first in real impl)\nconst cycle = 1; // Simplified - would track from envelope\n\nconst reportContent = JSON.stringify({\n  task_id: data.task_id,\n  pr_url: data.pr_url,\n  repository: data.repository,\n  timestamp: new Date().toISOString(),\n  cycle: cycle,\n  passed: data.passed,\n  blocked: data.blocked,\n  status: data.status,\n  verdict: data.verdict,\n  recommendation: data.recommendation,\n  test_results: data.test_results,\n  build_results: data.build_results,\n  issues_count: data.issues_count,\n  has_critical_issues: data.has_critical_issues,\n  test_output_length: data.test_output_length,\n  feedback: data.feedback\n}, null, 2);\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-verification',\n    blob_path: `${data.task_id}/verification-report-${cycle}.json`,\n    content: reportContent,\n    content_type: 'application/json',\n    task_id: data.task_id,\n    passed: data.passed,\n    blocked: data.blocked,\n    status: data.status,\n    verdict: data.verdict,\n    recommendation: data.recommendation,\n    feedback: data.feedback,\n    pr_url: data.pr_url\n  }\n}];"
       },
       "id": "code_prepare_upload",
       "name": "Prepare Report Upload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 300],
+      "position": [2440, 300],
       "notes": "T105: Build upload request for verification report"
     },
     {
@@ -87,8 +133,37 @@
       "name": "Upload Verification Report",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1780, 300],
+      "position": [2660, 300],
       "notes": "T105: Upload report to agent-verification container"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            { "leftValue": "={{ $('Prepare Report Upload').first().json.blocked }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if_blocked",
+      "name": "Is Blocked?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2880, 300],
+      "notes": "T107: Check if blocked for human intervention"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return blocked result for human intervention\nconst data = $('Prepare Report Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'verification',\n    passed: false,\n    blocked: true,\n    status: 'BLOCKED',\n    verdict: 'BLOCKED_FOR_HUMAN',\n    recommendation: 'blocked',\n    pr_url: data.pr_url,\n    feedback: data.feedback,\n    report_path: `agent-verification/${data.task_id}/verification-report-1.json`\n  }\n}];"
+      },
+      "id": "code_return_blocked",
+      "name": "Return Blocked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 200],
+      "notes": "T107: Return blocked for human checkpoint"
     },
     {
       "parameters": {
@@ -105,30 +180,30 @@
       "name": "Verification Passed?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [2000, 300],
+      "position": [3100, 400],
       "notes": "T107: Route based on verification result"
     },
     {
       "parameters": {
-        "jsCode": "// Return passed result\nconst data = $('Prepare Report Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'verification',\n    passed: true,\n    recommendation: 'approve',\n    pr_url: data.pr_url,\n    report_path: `agent-verification/${data.task_id}/verification-report-1.json`\n  }\n}];"
+        "jsCode": "// Return passed result\nconst data = $('Prepare Report Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'verification',\n    passed: true,\n    blocked: false,\n    status: 'PASS',\n    verdict: 'APPROVED_FOR_REVIEW',\n    recommendation: 'approve',\n    pr_url: data.pr_url,\n    report_path: `agent-verification/${data.task_id}/verification-report-1.json`\n  }\n}];"
       },
       "id": "code_return_passed",
       "name": "Return Passed",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2220, 200],
+      "position": [3320, 300],
       "notes": "T107: Return passed with approval"
     },
     {
       "parameters": {
-        "jsCode": "// Return failed result with feedback\nconst data = $('Prepare Report Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'verification',\n    passed: false,\n    recommendation: data.recommendation,\n    pr_url: data.pr_url,\n    feedback: data.feedback,\n    report_path: `agent-verification/${data.task_id}/verification-report-1.json`\n  }\n}];"
+        "jsCode": "// Return failed result with feedback for routing back to implementation\nconst data = $('Prepare Report Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'verification',\n    passed: false,\n    blocked: false,\n    status: 'FAIL',\n    verdict: 'RETURN_TO_IMPLEMENTATION',\n    recommendation: data.recommendation,\n    pr_url: data.pr_url,\n    feedback: data.feedback,\n    report_path: `agent-verification/${data.task_id}/verification-report-1.json`\n  }\n}];"
       },
       "id": "code_return_failed",
       "name": "Return Failed",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2220, 400],
-      "notes": "T107: Return failed with feedback for routing"
+      "position": [3320, 500],
+      "notes": "T107: Return failed with feedback for routing back to implementation"
     },
     {
       "parameters": {},
@@ -141,7 +216,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'verification',\n    passed: false,\n    error: error.message || 'Unknown error in QA Verification workflow'\n  }\n}];"
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'verification',\n    passed: false,\n    blocked: true,\n    status: 'BLOCKED',\n    verdict: 'BLOCKED_FOR_HUMAN',\n    error: error.message || 'Unknown error in QA Verification workflow'\n  }\n}];"
       },
       "id": "code_handle_error",
       "name": "Handle Error",
@@ -152,6 +227,26 @@
   ],
   "connections": {
     "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Envelope Read", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Read": {
+      "main": [
+        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Task Envelope": {
+      "main": [
+        [{ "node": "Extract Repository URL", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Repository URL": {
+      "main": [
+        [{ "node": "Get GitHub Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get GitHub Token": {
       "main": [
         [{ "node": "Prepare Spec Download", "type": "main", "index": 0 }]
       ]
@@ -188,6 +283,12 @@
     },
     "Upload Verification Report": {
       "main": [
+        [{ "node": "Is Blocked?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Is Blocked?": {
+      "main": [
+        [{ "node": "Return Blocked", "type": "main", "index": 0 }],
         [{ "node": "Verification Passed?", "type": "main", "index": 0 }]
       ]
     },
@@ -213,7 +314,8 @@
   "tags": [
     { "name": "stage-4" },
     { "name": "qa-agent" },
-    { "name": "autonomous-agents" }
+    { "name": "autonomous-agents" },
+    { "name": "013-agent-repo-clone" }
   ],
   "pinData": {},
   "meta": {

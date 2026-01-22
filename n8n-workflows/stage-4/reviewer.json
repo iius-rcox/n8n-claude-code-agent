@@ -12,13 +12,59 @@
     },
     {
       "parameters": {
-        "jsCode": "// T110: Prepare to download verification report\nconst data = $input.first().json;\n\nif (!data.task_id || !data.pr_url) {\n  throw new Error('Missing required fields: task_id and pr_url');\n}\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-verification',\n    blob_path: `${data.task_id}/verification-report-1.json`,\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    verification_status: data.verification_status || 'passed'\n  }\n}];"
+        "jsCode": "// 013: Read task envelope to get repository URL\nconst data = $input.first().json;\n\nif (!data.task_id || !data.pr_url) {\n  throw new Error('Missing required fields: task_id and pr_url');\n}\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-state',\n    blob_path: `${data.task_id}/task-envelope.yml`,\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    verification_status: data.verification_status || 'passed'\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_read",
+      "name": "Prepare Envelope Read",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "013: Prepare to read task envelope for repository URL"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_envelope",
+      "name": "Read Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "013: Download task envelope to get repository URL"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 013: Extract repository URL from task envelope\nconst envelopeResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nif (!envelopeResult.success) {\n  throw new Error(`Failed to read task envelope: ${envelopeResult.error || 'Unknown error'}`);\n}\n\nconst envelopeContent = envelopeResult.content;\n\n// Parse repository from envelope (YAML format)\nconst repoMatch = envelopeContent.match(/repository:\\s*[\"']?([^\"'\\n]+)[\"']?/);\nconst repository = repoMatch ? repoMatch[1].trim() : null;\n\nif (!repository) {\n  throw new Error('Repository URL not found in task envelope');\n}\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    pr_url: inputData.pr_url,\n    repository: repository,\n    verification_status: inputData.verification_status || 'passed',\n    envelope_content: envelopeContent\n  }\n}];"
+      },
+      "id": "code_extract_repo",
+      "name": "Extract Repository URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "notes": "013: Extract repository URL from task envelope"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.GITHUB_TOKEN_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_github_token",
+      "name": "Get GitHub Token",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1120, 300],
+      "notes": "013: Get GitHub token for PR access"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T110: Prepare to download verification report\nconst tokenResult = $input.first().json;\nconst repoData = $('Extract Repository URL').first().json;\n\nconst github_token = tokenResult.success ? tokenResult.token : null;\n\nreturn [{\n  json: {\n    operation: 'download',\n    container: 'agent-verification',\n    blob_path: `${repoData.task_id}/verification-report-1.json`,\n    task_id: repoData.task_id,\n    pr_url: repoData.pr_url,\n    repository: repoData.repository,\n    github_token: github_token,\n    verification_status: repoData.verification_status || 'passed'\n  }\n}];"
       },
       "id": "code_prepare_download",
       "name": "Prepare Verification Download",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300],
+      "position": [1340, 300],
       "notes": "T110: Prepare download request for verification report"
     },
     {
@@ -30,19 +76,19 @@
       "name": "Download Verification Report",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [680, 300],
+      "position": [1560, 300],
       "notes": "T110: Download verification report via Blob State Manager"
     },
     {
       "parameters": {
-        "jsCode": "// T111: Build reviewer prompt\nconst downloadResult = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nlet verificationSummary = 'No verification report available';\nif (downloadResult.success && downloadResult.content) {\n  try {\n    const report = JSON.parse(downloadResult.content);\n    verificationSummary = `\n- Test Results: ${report.test_results?.passed || 0} passed, ${report.test_results?.failed || 0} failed\n- Recommendation: ${report.recommendation || 'N/A'}\n- Issues Found: ${report.issues_count || 0}`;\n  } catch (e) {\n    verificationSummary = downloadResult.content.substring(0, 500);\n  }\n}\n\n// Build the system prompt with Reviewer Agent behavior\nconst systemPrompt = `You are a Senior Staff Engineer conducting code reviews. Your role is to ensure code quality, security, and adherence to standards.\n\n## Behavior: Code Review\n\nYou will review the PR with focus on:\n1. **Code Correctness**: Logic errors, edge cases, null handling\n2. **Security**: OWASP top 10, injection risks, auth issues, exposed secrets\n3. **Performance**: N+1 queries, memory leaks, inefficient algorithms\n4. **Code Quality**: Readability, naming, DRY violations\n5. **Test Coverage**: Adequate tests for changes\n\n## Output Format\n\nYour response MUST include a YAML block with the review feedback:\n\n\\`\\`\\`yaml\noverall_assessment: approve | request_changes\n\ncomments:\n  - file: \"path/to/file.ts\"\n    line: 42\n    severity: blocking | suggestion\n    issue: \"Description of the concern\"\n    suggestion: \"How to fix it\"\n    \nsecurity_concerns:\n  - severity: critical | high | medium | low\n    description: \"Security issue description\"\n    cwe: \"CWE-XXX (if applicable)\"\n    \nfeedback_for_dev: \"Prioritized list of changes needed (if request_changes)\"\n\\`\\`\\`\n\n## Critical Security Detection (FR-013)\n\nIf you detect ANY of these, immediately set overall_assessment to request_changes:\n- Hardcoded secrets/API keys\n- SQL injection vulnerabilities\n- Cross-site scripting (XSS) risks\n- Authentication bypass possibilities\n- Insecure deserialization\n- Command injection\n\n## Guidelines\n\n- Focus on issues that could cause bugs or security vulnerabilities\n- Be specific: reference exact files and line numbers\n- Distinguish between blocking issues and suggestions\n- Approve if code is production-ready, even with minor suggestions`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nReview the code changes in this PR.\n\n## PR Information\n\n- Task ID: ${inputData.task_id}\n- PR URL: ${inputData.pr_url}\n\n## Verification Status\n${verificationSummary}\n\n## Instructions\n\n1. Fetch the PR diff using: \\`gh pr diff ${inputData.pr_url.match(/\\/pull\\/(\\d+)/)?.[1] || 'unknown'}\\`\n2. Review each changed file for the criteria above\n3. Check for security vulnerabilities\n4. Provide specific, actionable feedback\n\n---\n\nPlease review the PR and provide your assessment.`;\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    pr_url: inputData.pr_url,\n    verification_summary: verificationSummary,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'reviewer'\n  }\n}];"
+        "jsCode": "// T111: Build reviewer prompt with real code diff access - 013-agent-repo-clone\nconst downloadResult = $input.first().json;\nconst inputData = $('Prepare Verification Download').first().json;\n\nlet verificationSummary = 'No verification report available';\nif (downloadResult.success && downloadResult.content) {\n  try {\n    const report = JSON.parse(downloadResult.content);\n    verificationSummary = `\n- Test Results: ${report.test_results?.passed || 0} passed, ${report.test_results?.failed || 0} failed\n- Build Success: ${report.build_results?.success || 'N/A'}\n- Recommendation: ${report.recommendation || 'N/A'}\n- Issues Found: ${report.issues_count || 0}`;\n  } catch (e) {\n    verificationSummary = downloadResult.content.substring(0, 500);\n  }\n}\n\nconst github_token = inputData.github_token;\nconst repository = inputData.repository;\nconst pr_url = inputData.pr_url;\nconst task_id = inputData.task_id;\n\n// Extract repo path from URL (e.g., 'ii-us/ExpenseTrack' from 'https://github.com/ii-us/ExpenseTrack')\nconst repoPath = repository.replace('https://github.com/', '');\n\n// Extract PR number from URL\nconst prNumberMatch = pr_url.match(/\\/pull\\/(\\d+)/);\nconst prNumber = prNumberMatch ? prNumberMatch[1] : 'unknown';\n\n// Build GitHub authentication setup\nconst tokenSetup = github_token \n  ? `# Step 1: Authenticate GitHub CLI\\nexport GH_TOKEN=\"${github_token}\"\\n\\n# Verify authentication\\ngh auth status\\n\\n`\n  : '# Note: GitHub token not available - some operations may fail\\n\\n';\n\n// Build the system prompt with MANDATORY real code diff review\nconst systemPrompt = `You are performing the REVIEW phase as a Code Review Agent.\n\nYou are a Senior Staff Engineer conducting a code review of actual pull request changes.\n\n## ENVIRONMENT SETUP\n\n${tokenSetup}## MANDATORY WORKFLOW (FOLLOW EXACTLY IN ORDER)\n\n### Step 1: Set Up GitHub Authentication\n\\`\\`\\`bash\nexport GH_TOKEN=\"<provided above>\"\ngh auth status\n\\`\\`\\`\n\n### Step 2: Fetch PR Information\n\\`\\`\\`bash\n# Get PR metadata\ngh pr view ${prNumber} --repo ${repoPath} --json title,body,files,additions,deletions\n\\`\\`\\`\n\n### Step 3: Review PR Diff (CRITICAL)\n\\`\\`\\`bash\n# Get the ACTUAL code changes - this is MANDATORY\ngh pr diff ${prNumber} --repo ${repoPath}\n\\`\\`\\`\n\n### Step 4: Analyze Changes\nFor each file in the diff, analyze:\n1. **Correctness**: Does the code do what it's supposed to?\n2. **Security**: Any vulnerabilities (injection, XSS, auth bypass, hardcoded secrets)?\n3. **Code Quality**: Follows project patterns and conventions?\n4. **Error Handling**: Appropriate error handling and edge cases?\n5. **Testing**: Are the changes adequately tested?\n\n### Step 5: Generate Review Report\nYour response MUST include a YAML block with the review report:\n\n\\`\\`\\`yaml\nverdict: APPROVED | CHANGES_REQUESTED | BLOCKED\n\npr_summary:\n  files_changed: <number>\n  additions: <number>\n  deletions: <number>\n  \ncode_issues:\n  - file: \"path/to/file.ts\"\n    line: <number>\n    severity: CRITICAL | HIGH | MEDIUM | LOW\n    category: correctness | security | quality | performance | testing\n    description: \"<detailed description of the issue>\"\n    suggestion: \"<how to fix it>\"\n    \nsecurity_concerns:\n  - severity: CRITICAL | HIGH | MEDIUM | LOW\n    file: \"path/to/file.ts\"\n    line: <number>\n    description: \"<security issue description>\"\n    cwe: \"CWE-XXX\"  # if applicable\n    \npositive_observations:\n  - \"<things done well>\"\n    \nfeedback_for_dev: \"<prioritized list of changes needed if CHANGES_REQUESTED>\"\n\nreasoning: \"<explanation of why you chose this verdict>\"\n\\`\\`\\`\n\n## VERDICT CRITERIA\n\n**APPROVED**:\n- No CRITICAL or HIGH severity issues\n- Code meets specification requirements\n- Adequate test coverage for changes\n- No security vulnerabilities\n\n**CHANGES_REQUESTED**:\n- HIGH severity issues found (not critical)\n- Missing functionality vs specification\n- Security concerns that can be fixed\n- Code quality issues that need addressing\n\n**BLOCKED**:\n- CRITICAL security vulnerabilities (hardcoded secrets, SQL injection, auth bypass)\n- Fundamental design flaws requiring architect review\n- Changes that could cause data loss or system instability\n\n## CRITICAL RULES\n\n1. You MUST use \\`gh pr diff\\` to see actual code changes - DO NOT REVIEW WITHOUT SEEING THE CODE\n2. You MUST reference specific file paths and line numbers for ALL issues\n3. You MUST NOT approve based only on specification documents\n4. Security issues are always HIGH or CRITICAL severity\n5. CHANGES_REQUESTED routes task back to implementation phase with feedback\n6. BLOCKED routes to human checkpoint - use sparingly for truly critical issues\n7. Include at least one positive observation if possible`;\n\n// Build the user prompt\nconst userPrompt = `## Task\n\nReview the ACTUAL code changes in this PR by examining the real diff.\n\n## PR Information\n\n- Task ID: ${task_id}\n- PR URL: ${pr_url}\n- Repository: ${repository}\n- PR Number: ${prNumber}\n\n## QA Verification Status\n${verificationSummary}\n\n---\n\n## Instructions\n\n1. Set up GitHub authentication with the provided token\n2. Fetch PR metadata: \\`gh pr view ${prNumber} --repo ${repoPath} --json title,body,files,additions,deletions\\`\n3. **CRITICAL**: Get the actual diff: \\`gh pr diff ${prNumber} --repo ${repoPath}\\`\n4. Review each changed file for correctness, security, quality\n5. Generate your review report with specific file:line references\n\nRemember: You MUST review the actual code diff - do not make assumptions about the code.`;\n\nreturn [{\n  json: {\n    task_id: task_id,\n    pr_url: pr_url,\n    repository: repository,\n    pr_number: prNumber,\n    verification_summary: verificationSummary,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'reviewer',\n    timeout_ms: 3600000\n  }\n}];"
       },
       "id": "code_build_prompt",
       "name": "Build Review Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [900, 300],
-      "notes": "T111: Build prompt using reviewer-agent.md template"
+      "position": [1780, 300],
+      "notes": "T111: Build prompt with real gh pr diff review - 013-agent-repo-clone"
     },
     {
       "parameters": {
@@ -53,29 +99,29 @@
       "name": "Call Agent Runner",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1120, 300],
-      "notes": "T112: Call Agent Runner with agent_role=reviewer"
+      "position": [2000, 300],
+      "notes": "T112: Call Agent Runner with agent_role=reviewer, timeout 60min"
     },
     {
       "parameters": {
-        "jsCode": "// T113: Parse review feedback from output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Review Prompt').first().json;\n\nif (!agentResponse.success) {\n  return [{\n    json: {\n      success: false,\n      task_id: previousData.task_id,\n      error: agentResponse.error || 'Agent Runner failed',\n      approved: false\n    }\n  }];\n}\n\nconst output = agentResponse.output || '';\n\n// Parse the YAML review feedback\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\n\nlet review = {\n  overall_assessment: 'request_changes',\n  comments: [],\n  security_concerns: [],\n  feedback_for_dev: 'Unable to parse review feedback'\n};\n\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse overall_assessment\n  const assessmentMatch = yamlContent.match(/overall_assessment:\\s*(approve|request_changes)/);\n  review.overall_assessment = assessmentMatch ? assessmentMatch[1] : 'request_changes';\n  \n  // Parse feedback\n  const feedbackMatch = yamlContent.match(/feedback_for_dev:\\s*[\"']?([^\\n\"']+)[\"']?/);\n  review.feedback_for_dev = feedbackMatch ? feedbackMatch[1].trim() : '';\n  \n  // Check for security concerns (T116)\n  const securityMatch = yamlContent.match(/security_concerns:[\\s\\S]*?(?=feedback_for_dev:|$)/);\n  if (securityMatch) {\n    const criticalMatch = securityMatch[0].match(/severity:\\s*critical/gi);\n    if (criticalMatch && criticalMatch.length > 0) {\n      // T116: Critical security - force request_changes and flag escalation\n      review.overall_assessment = 'request_changes';\n      review.has_critical_security = true;\n      review.security_concerns = criticalMatch.map(() => ({ severity: 'critical' }));\n    }\n  }\n  \n  // Count blocking comments\n  const blockingMatches = yamlContent.match(/severity:\\s*blocking/gi);\n  review.blocking_count = blockingMatches ? blockingMatches.length : 0;\n}\n\n// Determine if approved\nconst approved = review.overall_assessment === 'approve' && !review.has_critical_security;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: previousData.task_id,\n    pr_url: previousData.pr_url,\n    approved: approved,\n    review: review,\n    overall_assessment: review.overall_assessment,\n    has_critical_security: review.has_critical_security || false,\n    blocking_count: review.blocking_count || 0,\n    feedback: review.feedback_for_dev,\n    raw_output: output\n  }\n}];"
+        "jsCode": "// T113: Parse review feedback from output - updated for 013-agent-repo-clone\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Review Prompt').first().json;\n\nif (!agentResponse.success) {\n  return [{\n    json: {\n      success: false,\n      task_id: previousData.task_id,\n      error: agentResponse.error || 'Agent Runner failed',\n      verdict: 'BLOCKED',\n      approved: false,\n      blocked: true\n    }\n  }];\n}\n\nconst output = agentResponse.output || '';\n\n// Parse the YAML review feedback\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```/);\n\nlet review = {\n  verdict: 'CHANGES_REQUESTED',\n  pr_summary: { files_changed: 0, additions: 0, deletions: 0 },\n  code_issues: [],\n  security_concerns: [],\n  positive_observations: [],\n  feedback_for_dev: 'Unable to parse review feedback',\n  reasoning: ''\n};\n\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse verdict\n  const verdictMatch = yamlContent.match(/verdict:\\s*(APPROVED|CHANGES_REQUESTED|BLOCKED)/i);\n  review.verdict = verdictMatch ? verdictMatch[1].toUpperCase() : 'CHANGES_REQUESTED';\n  \n  // Parse pr_summary\n  const filesMatch = yamlContent.match(/files_changed:\\s*(\\d+)/);\n  const additionsMatch = yamlContent.match(/additions:\\s*(\\d+)/);\n  const deletionsMatch = yamlContent.match(/deletions:\\s*(\\d+)/);\n  review.pr_summary = {\n    files_changed: filesMatch ? parseInt(filesMatch[1]) : 0,\n    additions: additionsMatch ? parseInt(additionsMatch[1]) : 0,\n    deletions: deletionsMatch ? parseInt(deletionsMatch[1]) : 0\n  };\n  \n  // Parse feedback\n  const feedbackMatch = yamlContent.match(/feedback_for_dev:\\s*[\"']?([^\\n\"']+)[\"']?/);\n  review.feedback_for_dev = feedbackMatch ? feedbackMatch[1].trim() : '';\n  \n  // Parse reasoning\n  const reasoningMatch = yamlContent.match(/reasoning:\\s*[\"']?([^\\n\"']+)[\"']?/);\n  review.reasoning = reasoningMatch ? reasoningMatch[1].trim() : '';\n  \n  // Count code issues by severity\n  const criticalIssues = (yamlContent.match(/severity:\\s*CRITICAL/gi) || []).length;\n  const highIssues = (yamlContent.match(/severity:\\s*HIGH/gi) || []).length;\n  const mediumIssues = (yamlContent.match(/severity:\\s*MEDIUM/gi) || []).length;\n  const lowIssues = (yamlContent.match(/severity:\\s*LOW/gi) || []).length;\n  \n  review.issue_counts = {\n    critical: criticalIssues,\n    high: highIssues,\n    medium: mediumIssues,\n    low: lowIssues\n  };\n  \n  // Check for security concerns\n  const securityMatch = yamlContent.match(/security_concerns:[\\s\\S]*?(?=positive_observations:|feedback_for_dev:|reasoning:|$)/);\n  if (securityMatch) {\n    const criticalSecurityMatches = securityMatch[0].match(/severity:\\s*CRITICAL/gi);\n    review.has_critical_security = criticalSecurityMatches && criticalSecurityMatches.length > 0;\n  }\n}\n\n// Determine status based on verdict\nconst approved = review.verdict === 'APPROVED';\nconst blocked = review.verdict === 'BLOCKED' || review.has_critical_security;\n\n// Map verdict to legacy overall_assessment for backward compatibility\nlet overall_assessment = 'request_changes';\nif (review.verdict === 'APPROVED') overall_assessment = 'approve';\nelse if (review.verdict === 'BLOCKED') overall_assessment = 'blocked';\n\nreturn [{\n  json: {\n    success: true,\n    task_id: previousData.task_id,\n    pr_url: previousData.pr_url,\n    repository: previousData.repository,\n    approved: approved,\n    blocked: blocked,\n    verdict: review.verdict,\n    overall_assessment: overall_assessment,\n    pr_summary: review.pr_summary,\n    issue_counts: review.issue_counts,\n    has_critical_security: review.has_critical_security || false,\n    feedback: review.feedback_for_dev,\n    reasoning: review.reasoning,\n    raw_output: output\n  }\n}];"
       },
       "id": "code_parse_review",
       "name": "Parse Review Feedback",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1340, 300],
-      "notes": "T113: Parse review feedback (overall_assessment, comments, security_concerns)"
+      "position": [2220, 300],
+      "notes": "T113: Parse review feedback with verdict and file:line references - 013-agent-repo-clone"
     },
     {
       "parameters": {
-        "jsCode": "// T115: Prepare upload for review report\nconst data = $input.first().json;\n\n// Get cycle count (simplified - would track from envelope)\nconst cycle = 1;\n\nconst reportContent = JSON.stringify({\n  task_id: data.task_id,\n  pr_url: data.pr_url,\n  timestamp: new Date().toISOString(),\n  cycle: cycle,\n  approved: data.approved,\n  overall_assessment: data.overall_assessment,\n  has_critical_security: data.has_critical_security,\n  blocking_count: data.blocking_count,\n  feedback: data.feedback\n}, null, 2);\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-review',\n    blob_path: `${data.task_id}/review-report-${cycle}.json`,\n    content: reportContent,\n    content_type: 'application/json',\n    task_id: data.task_id,\n    approved: data.approved,\n    overall_assessment: data.overall_assessment,\n    has_critical_security: data.has_critical_security,\n    feedback: data.feedback,\n    pr_url: data.pr_url\n  }\n}];"
+        "jsCode": "// T115: Prepare upload for review report\nconst data = $input.first().json;\n\n// Get cycle count (simplified - would track from envelope)\nconst cycle = 1;\n\nconst reportContent = JSON.stringify({\n  task_id: data.task_id,\n  pr_url: data.pr_url,\n  repository: data.repository,\n  timestamp: new Date().toISOString(),\n  cycle: cycle,\n  approved: data.approved,\n  blocked: data.blocked,\n  verdict: data.verdict,\n  overall_assessment: data.overall_assessment,\n  pr_summary: data.pr_summary,\n  issue_counts: data.issue_counts,\n  has_critical_security: data.has_critical_security,\n  feedback: data.feedback,\n  reasoning: data.reasoning\n}, null, 2);\n\nreturn [{\n  json: {\n    operation: 'upload',\n    container: 'agent-review',\n    blob_path: `${data.task_id}/review-report-${cycle}.json`,\n    content: reportContent,\n    content_type: 'application/json',\n    task_id: data.task_id,\n    approved: data.approved,\n    blocked: data.blocked,\n    verdict: data.verdict,\n    overall_assessment: data.overall_assessment,\n    has_critical_security: data.has_critical_security,\n    feedback: data.feedback,\n    pr_url: data.pr_url\n  }\n}];"
       },
       "id": "code_prepare_upload",
       "name": "Prepare Review Upload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 300],
+      "position": [2440, 300],
       "notes": "T115: Build upload request for review report"
     },
     {
@@ -87,7 +133,7 @@
       "name": "Upload Review Report",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [1780, 300],
+      "position": [2660, 300],
       "notes": "T115: Upload report to agent-review container"
     },
     {
@@ -95,51 +141,52 @@
         "conditions": {
           "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
           "conditions": [
-            { "leftValue": "={{ $('Prepare Review Upload').first().json.has_critical_security }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
+            { "leftValue": "={{ $('Prepare Review Upload').first().json.blocked }}", "rightValue": true, "operator": { "type": "boolean", "operation": "equals" } }
           ],
           "combinator": "and"
         },
         "options": {}
       },
-      "id": "if_critical_security",
-      "name": "Critical Security?",
+      "id": "if_blocked",
+      "name": "Is Blocked?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [2000, 300],
-      "notes": "T116: Check for critical security vulnerabilities"
+      "position": [2880, 300],
+      "notes": "T116: Check for BLOCKED verdict or critical security"
     },
     {
       "parameters": {
-        "jsCode": "// T116: Immediate escalation for critical security\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    event_type: 'needs_human',\n    task_id: data.task_id,\n    severity: 'critical',\n    title: `CRITICAL SECURITY: Task ${data.task_id}`,\n    message: 'Critical security vulnerability detected in code review. Immediate human review required.',\n    pr_url: data.pr_url,\n    escalation_reason: 'critical_security_vulnerability'\n  }\n}];"
+        "jsCode": "// T116: Prepare escalation for BLOCKED verdict\nconst data = $('Prepare Review Upload').first().json;\n\nconst escalationReason = data.has_critical_security \n  ? 'critical_security_vulnerability' \n  : 'blocked_by_reviewer';\n\nconst title = data.has_critical_security\n  ? `CRITICAL SECURITY: Task ${data.task_id}`\n  : `BLOCKED: Task ${data.task_id} requires human review`;\n\nconst message = data.has_critical_security\n  ? 'Critical security vulnerability detected in code review. Immediate human review required.'\n  : `Code review returned BLOCKED verdict. Reason: ${data.reasoning || data.feedback || 'See review report'}`;\n\nreturn [{\n  json: {\n    event_type: 'needs_human',\n    task_id: data.task_id,\n    severity: data.has_critical_security ? 'critical' : 'high',\n    title: title,\n    message: message,\n    pr_url: data.pr_url,\n    escalation_reason: escalationReason\n  }\n}];"
       },
-      "id": "code_security_escalation",
-      "name": "Prepare Security Escalation",
+      "id": "code_blocked_escalation",
+      "name": "Prepare Blocked Escalation",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2220, 200],
-      "notes": "T116: Prepare immediate escalation notification"
+      "position": [3100, 200],
+      "notes": "T116: Prepare escalation notification for BLOCKED"
     },
     {
       "parameters": {
         "workflowId": "={{ $env.NOTIFICATION_HUB_WORKFLOW_ID }}",
         "options": {}
       },
-      "id": "call_notification_security",
-      "name": "Notify Security Issue",
+      "id": "call_notification_blocked",
+      "name": "Notify Blocked",
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.1,
-      "position": [2440, 200],
-      "notes": "T116: Send critical security alert"
+      "position": [3320, 200],
+      "notes": "T116: Send blocked/security alert"
     },
     {
       "parameters": {
-        "jsCode": "// Return escalated result\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: false,\n    escalated: true,\n    escalation_reason: 'critical_security_vulnerability',\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
+        "jsCode": "// Return blocked result for human checkpoint\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: false,\n    blocked: true,\n    verdict: 'BLOCKED',\n    escalated: true,\n    escalation_reason: data.has_critical_security ? 'critical_security_vulnerability' : 'blocked_by_reviewer',\n    pr_url: data.pr_url,\n    feedback: data.feedback,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
       },
-      "id": "code_return_escalated",
-      "name": "Return Escalated",
+      "id": "code_return_blocked",
+      "name": "Return Blocked",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2660, 200]
+      "position": [3540, 200],
+      "notes": "Return blocked for human checkpoint"
     },
     {
       "parameters": {
@@ -156,30 +203,30 @@
       "name": "Approved?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [2220, 400],
-      "notes": "T117: Route based on approval status"
+      "position": [3100, 400],
+      "notes": "T117: Route based on APPROVED vs CHANGES_REQUESTED"
     },
     {
       "parameters": {
-        "jsCode": "// T117: Return approved result\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: true,\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
+        "jsCode": "// T117: Return approved result\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: true,\n    blocked: false,\n    verdict: 'APPROVED',\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
       },
       "id": "code_return_approved",
       "name": "Return Approved",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2440, 350],
-      "notes": "T117: Return approved for routing"
+      "position": [3320, 350],
+      "notes": "T117: Return approved for release phase"
     },
     {
       "parameters": {
-        "jsCode": "// T117: Return request_changes result with feedback\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: false,\n    feedback: data.feedback,\n    blocking_count: data.blocking_count,\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
+        "jsCode": "// T117: Return CHANGES_REQUESTED result with feedback for routing back to implementation\nconst data = $('Prepare Review Upload').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: data.task_id,\n    phase: 'review',\n    approved: false,\n    blocked: false,\n    verdict: 'CHANGES_REQUESTED',\n    issue_counts: data.issue_counts,\n    feedback: data.feedback,\n    reasoning: data.reasoning,\n    pr_url: data.pr_url,\n    report_path: `agent-review/${data.task_id}/review-report-1.json`\n  }\n}];"
       },
       "id": "code_return_changes",
-      "name": "Return Request Changes",
+      "name": "Return Changes Requested",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [2440, 480],
-      "notes": "T117: Return request_changes with feedback for routing"
+      "position": [3320, 480],
+      "notes": "T117: Return CHANGES_REQUESTED for routing back to implementation"
     },
     {
       "parameters": {},
@@ -192,7 +239,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'review',\n    approved: false,\n    error: error.message || 'Unknown error in Reviewer workflow'\n  }\n}];"
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    phase: 'review',\n    approved: false,\n    blocked: true,\n    verdict: 'BLOCKED',\n    error: error.message || 'Unknown error in Reviewer workflow'\n  }\n}];"
       },
       "id": "code_handle_error",
       "name": "Handle Error",
@@ -203,6 +250,26 @@
   ],
   "connections": {
     "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Envelope Read", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Read": {
+      "main": [
+        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Task Envelope": {
+      "main": [
+        [{ "node": "Extract Repository URL", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Repository URL": {
+      "main": [
+        [{ "node": "Get GitHub Token", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get GitHub Token": {
       "main": [
         [{ "node": "Prepare Verification Download", "type": "main", "index": 0 }]
       ]
@@ -239,29 +306,29 @@
     },
     "Upload Review Report": {
       "main": [
-        [{ "node": "Critical Security?", "type": "main", "index": 0 }]
+        [{ "node": "Is Blocked?", "type": "main", "index": 0 }]
       ]
     },
-    "Critical Security?": {
+    "Is Blocked?": {
       "main": [
-        [{ "node": "Prepare Security Escalation", "type": "main", "index": 0 }],
+        [{ "node": "Prepare Blocked Escalation", "type": "main", "index": 0 }],
         [{ "node": "Approved?", "type": "main", "index": 0 }]
       ]
     },
-    "Prepare Security Escalation": {
+    "Prepare Blocked Escalation": {
       "main": [
-        [{ "node": "Notify Security Issue", "type": "main", "index": 0 }]
+        [{ "node": "Notify Blocked", "type": "main", "index": 0 }]
       ]
     },
-    "Notify Security Issue": {
+    "Notify Blocked": {
       "main": [
-        [{ "node": "Return Escalated", "type": "main", "index": 0 }]
+        [{ "node": "Return Blocked", "type": "main", "index": 0 }]
       ]
     },
     "Approved?": {
       "main": [
         [{ "node": "Return Approved", "type": "main", "index": 0 }],
-        [{ "node": "Return Request Changes", "type": "main", "index": 0 }]
+        [{ "node": "Return Changes Requested", "type": "main", "index": 0 }]
       ]
     },
     "Error Trigger": {
@@ -280,7 +347,8 @@
   "tags": [
     { "name": "stage-4" },
     { "name": "reviewer-agent" },
-    { "name": "autonomous-agents" }
+    { "name": "autonomous-agents" },
+    { "name": "013-agent-repo-clone" }
   ],
   "pinData": {},
   "meta": {

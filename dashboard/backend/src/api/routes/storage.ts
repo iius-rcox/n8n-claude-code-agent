@@ -39,6 +39,34 @@ export function createStorageRouter(blobStorageService: BlobStorageService): Rou
   );
 
   /**
+   * GET /api/storage/containers/:container/search
+   * Search for blobs matching a query string
+   */
+  router.get(
+    '/containers/:container/search',
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { container } = req.params;
+        const query = (req.query.q as string) || '';
+        const limit = parseInt((req.query.limit as string) || '100', 10);
+
+        if (!query) {
+          res.status(400).json({
+            error: 'Bad Request',
+            message: 'Query parameter "q" is required',
+          });
+          return;
+        }
+
+        const result = await blobStorageService.searchBlobs(container, query, limit);
+        res.json(result);
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  /**
    * GET /api/storage/containers/:container/blobs/(path)
    * Get blob content for preview (supports nested paths)
    */

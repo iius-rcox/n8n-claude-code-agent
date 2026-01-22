@@ -267,6 +267,50 @@ export class N8nClient {
     }
   }
 
+  /**
+   * Retry a workflow execution (for stuck task recovery)
+   * Note: n8n does NOT support checkpoint-based resumption - this performs a full workflow restart
+   */
+  async retryWorkflow(workflowId: string, payload?: Record<string, unknown>): Promise<{
+    success: boolean;
+    executionId?: string;
+    error?: string;
+  }> {
+    if (!this.isConfigured()) {
+      return { success: false, error: 'n8n not configured' };
+    }
+
+    try {
+      const url = new URL(`${this.baseUrl}/api/v1/workflows/${workflowId}/execute`);
+
+      const response = await fetch(url.toString(), {
+        method: 'POST',
+        headers: this.getHeaders(),
+        body: JSON.stringify({ data: payload || {} }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        return {
+          success: false,
+          error: `n8n API error: ${response.status} - ${errorText}`,
+        };
+      }
+
+      const result = await response.json() as { data?: { executionId?: string } };
+
+      return {
+        success: true,
+        executionId: result.data?.executionId,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
   // Helper methods
 
   private getHeaders(): Record<string, string> {

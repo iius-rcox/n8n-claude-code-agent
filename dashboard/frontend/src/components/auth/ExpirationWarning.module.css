@@ -1,0 +1,78 @@
+.warning {
+  padding: 16px 20px;
+  border-radius: 8px;
+  margin: 16px 0;
+  border-left: 4px solid;
+}
+
+.warning.warning {
+  background: #fff3e0;
+  border-color: #ff9800;
+  color: #e65100;
+}
+
+.warning.critical {
+  background: #ffebee;
+  border-color: #f44336;
+  color: #c62828;
+}
+
+.content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.message {
+  flex: 1;
+}
+
+.title {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: 0.9;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.refreshButton {
+  padding: 8px 16px;
+  background: #2196f3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.refreshButton:hover {
+  background: #1976d2;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.refreshButton:active {
+  transform: translateY(0);
+}

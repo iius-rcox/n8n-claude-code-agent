@@ -262,4 +262,100 @@ export class KubernetesService {
             : undefined,
       }));
   }
+
+  /**
+   * Restart multiple pods simultaneously using Promise.allSettled for partial failure handling
+   */
+  async bulkRestartPods(podNames: string[]): Promise<Array<{
+    podName: string;
+    success: boolean;
+    error?: string;
+  }>> {
+    const results = await Promise.allSettled(
+      podNames.map(async (podName) => {
+        try {
+          await this.coreApi.deleteNamespacedPod(podName, this.namespace);
+          return { podName, success: true };
+        } catch (error) {
+          return {
+            podName,
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        }
+      })
+    );
+
+    return results.map((result) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
+      }
+      return {
+        podName: 'unknown',
+        success: false,
+        error: result.reason instanceof Error ? result.reason.message : 'Unknown error',
+      };
+    });
+  }
+
+  /**
+   * Get logs from a specific pod
+   */
+  async getPodLogs(podName: string, lines: number = 100): Promise<string[]> {
+    try {
+      const response = await this.coreApi.readNamespacedPodLog(
+        podName,
+        this.namespace,
+        undefined, // container (undefined = first container)
+        undefined, // follow
+        undefined, // insecureSkipTLSVerifyBackend
+        undefined, // limitBytes
+        undefined, // pretty
+        undefined, // previous
+        undefined, // sinceSeconds
+        lines, // tailLines
+        undefined  // timestamps
+      );
+
+      const logText = response.body;
+      return logText.split('\n').filter((line: string) => line.trim().length > 0);
+    } catch (error) {
+      throw new Error(`Failed to fetch logs for pod ${podName}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get logs from multiple pods in parallel
+   */
+  async bulkGetPodLogs(podNames: string[], lines: number = 100): Promise<Array<{
+    podName: string;
+    logs: string[];
+    error?: string;
+  }>> {
+    const results = await Promise.allSettled(
+      podNames.map(async (podName) => {
+        try {
+          const logs = await this.getPodLogs(podName, lines);
+          return { podName, logs };
+        } catch (error) {
+          return {
+            podName,
+            logs: [],
+            error: error instanceof Error ? error.message : 'Unknown error',
+          };
+        }
+      })
+    );
+
+    return results.map((result) => {
+      if (result.status === 'fulfilled') {
+        return result.value;
+      }
+      return {
+        podName: 'unknown',
+        logs: [],
+        error: result.reason instanceof Error ? result.reason.message : 'Unknown error',
+      };
+    });
+  }
 }

@@ -3,6 +3,7 @@ import {
   BlobSASPermissions,
 } from '@azure/storage-blob';
 import { DefaultAzureCredential } from '@azure/identity';
+import { parse as parseYAML } from 'yaml';
 import { Config } from '../config.js';
 import {
   StorageContainer,
@@ -252,6 +253,84 @@ export class BlobStorageService {
         error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
+  }
+
+  /**
+   * Read and parse task envelope YAML file for diagnostic purposes
+   */
+  async getTaskEnvelope(taskId: string): Promise<Record<string, unknown> | null> {
+    try {
+      const containerClient = this.blobServiceClient.getContainerClient('agent-state');
+      const blobPath = `${taskId}/task-envelope.yml`;
+      const blobClient = containerClient.getBlobClient(blobPath);
+
+      // Download the blob content
+      const downloadResponse = await blobClient.download();
+      const content = await this.streamToString(downloadResponse.readableStreamBody!);
+
+      // Parse YAML content
+      const envelope = parseYAML(content);
+      return envelope as Record<string, unknown>;
+    } catch (error) {
+      // Return null if blob doesn't exist or can't be parsed
+      if (error && typeof error === 'object' && 'statusCode' in error) {
+        const httpError = error as { statusCode?: number };
+        if (httpError.statusCode === 404) {
+          return null;
+        }
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Search for blobs matching a query string across their names/paths
+   * Returns blobs whose names contain the search query (case-insensitive)
+   */
+  async searchBlobs(
+    containerName: string,
+    query: string,
+    limit: number = 100
+  ): Promise<{ blobs: StorageBlob[]; totalCount: number; matchCount: number }> {
+    const containerClient = this.blobServiceClient.getContainerClient(containerName);
+    const allBlobs: StorageBlob[] = [];
+    const matchingBlobs: StorageBlob[] = [];
+    const lowerQuery = query.toLowerCase();
+
+    // List all blobs in container
+    for await (const blob of containerClient.listBlobsFlat()) {
+      const extension = this.getExtension(blob.name);
+      const storageBlob: StorageBlob = {
+        name: this.getFileName(blob.name),
+        path: blob.name,
+        container: containerName,
+        size: blob.properties?.contentLength || 0,
+        contentType: blob.properties?.contentType || 'application/octet-stream',
+        lastModified: blob.properties?.lastModified?.toISOString() || new Date().toISOString(),
+        leaseState: (blob.properties?.leaseState as LeaseState) || 'available',
+        leaseStatus: (blob.properties?.leaseStatus as LeaseStatus) || 'unlocked',
+        isFolder: false,
+        extension,
+      };
+
+      allBlobs.push(storageBlob);
+
+      // Check if blob name or path matches query
+      if (blob.name.toLowerCase().includes(lowerQuery)) {
+        matchingBlobs.push(storageBlob);
+
+        // Stop once we hit the limit for matched results
+        if (matchingBlobs.length >= limit) {
+          break;
+        }
+      }
+    }
+
+    return {
+      blobs: matchingBlobs,
+      totalCount: allBlobs.length,
+      matchCount: matchingBlobs.length,
+    };
   }
 
   // Helper methods

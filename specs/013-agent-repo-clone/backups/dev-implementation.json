@@ -1,0 +1,409 @@
+{
+  "name": "Dev Implementation",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger_subworkflow",
+      "name": "Sub-Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "T070: Input: task_id, current_task_number, feedback (optional)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T071: Prepare download requests for spec.md, plan.md, tasks.md\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task_number || 1,\n    feedback: data.feedback || null,\n    downloads: {\n      spec: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/spec.md` },\n      plan: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/plan.md` },\n      tasks: { operation: 'download', container: 'agent-spec', blob_path: `${data.task_id}/tasks.md` }\n    }\n  }\n}];"
+      },
+      "id": "code_prepare_downloads",
+      "name": "Prepare Downloads",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "notes": "T071: Prepare artifact download requests"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_download_spec",
+      "name": "Download spec.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 200],
+      "notes": "T071: Download spec"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_download_plan",
+      "name": "Download plan.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "notes": "T071: Download plan"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_download_tasks",
+      "name": "Download tasks.md",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [680, 400],
+      "notes": "T071: Download tasks"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract spec download request\nconst data = $input.first().json;\nreturn [{ json: data.downloads.spec }];"
+      },
+      "id": "code_extract_spec",
+      "name": "Extract Spec Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract plan download request\nconst data = $('Prepare Downloads').first().json;\nreturn [{ json: data.downloads.plan }];"
+      },
+      "id": "code_extract_plan",
+      "name": "Extract Plan Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract tasks download request\nconst data = $('Prepare Downloads').first().json;\nreturn [{ json: data.downloads.tasks }];"
+      },
+      "id": "code_extract_tasks",
+      "name": "Extract Tasks Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 500]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {},
+        "combinationMode": "multiplex",
+        "options": {}
+      },
+      "id": "merge_downloads",
+      "name": "Merge Downloads",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2.1,
+      "position": [900, 300],
+      "notes": "Combine all downloaded artifacts"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T072: Parse current task from tasks.md based on task_number\nconst items = $input.all();\nconst inputData = $('Prepare Downloads').first().json;\n\nlet specContent = '';\nlet planContent = '';\nlet tasksContent = '';\n\nfor (const item of items) {\n  if (item.json.blob_path?.includes('spec.md')) {\n    specContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('plan.md')) {\n    planContent = item.json.content || '';\n  } else if (item.json.blob_path?.includes('tasks.md')) {\n    tasksContent = item.json.content || '';\n  }\n}\n\nif (!specContent || !tasksContent) {\n  throw new Error('Failed to download required artifacts');\n}\n\n// T072: Parse current task from tasks.md\nconst taskNumber = inputData.current_task_number;\nconst taskPattern = new RegExp(`- \\\\[ \\\\] T0*${taskNumber}\\\\s+([^\\\\n]+(?:\\\\n\\\\s+[^\\\\n-]+)*)`, 'm');\nconst taskMatch = tasksContent.match(taskPattern);\n\nlet currentTask = null;\nif (taskMatch) {\n  currentTask = taskMatch[0].trim();\n} else {\n  // Try alternate pattern\n  const altPattern = new RegExp(`T0*${taskNumber}[^\\\\n]*`, 'i');\n  const altMatch = tasksContent.match(altPattern);\n  if (altMatch) {\n    currentTask = altMatch[0].trim();\n  }\n}\n\nif (!currentTask) {\n  throw new Error(`Could not find task T${taskNumber} in tasks.md`);\n}\n\nreturn [{\n  json: {\n    task_id: inputData.task_id,\n    current_task_number: taskNumber,\n    current_task: currentTask,\n    spec_content: specContent,\n    plan_content: planContent,\n    tasks_content: tasksContent,\n    feedback: inputData.feedback\n  }\n}];"
+      },
+      "id": "code_parse_current_task",
+      "name": "Parse Current Task",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "notes": "T072: Extract current task from tasks.md"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T073-T074: Build implementation prompt using dev-agent.md template\nconst data = $input.first().json;\n\n// T074: Context management - create summaries to stay within budget\nconst specSummary = data.spec_content.length > 4000 \n  ? data.spec_content.substring(0, 4000) + '\\n[Truncated...]'\n  : data.spec_content;\n\nconst planSummary = data.plan_content.length > 3000\n  ? data.plan_content.substring(0, 3000) + '\\n[Truncated...]'\n  : data.plan_content;\n\n// Build the system prompt with Dev Agent implementation behavior\nconst systemPrompt = `You are a Senior Software Engineer implementing a feature for the autonomous dev team.\n\n## Behavior: /speckit.implement\n\nYou are implementing task T${data.current_task_number}. Follow these rules:\n\n1. **Read First**: Understand existing code patterns before changing anything\n2. **Minimal Changes**: Implement only what the task requires - no refactoring\n3. **Follow Patterns**: Match existing code style exactly\n4. **Test Coverage**: Write tests for new functionality\n5. **Atomic Commits**: Each logical change gets its own commit\n\n## Git Workflow\n\n- Branch: feat/${data.task_id}-task-${data.current_task_number}\n- Commit format: type(scope): description\n- PR description must reference the task\n\n## Output Format\n\nYour response MUST end with a YAML block:\n\n\\`\\`\\`yaml\nstatus: success | blocked | error\npr_url: \"https://github.com/...\"\nbranch: \"feat/${data.task_id}-task-${data.current_task_number}\"\ncommits:\n  - sha: \"abc1234\"\n    message: \"feat(scope): description\"\nsummary: |\n  Brief description of changes\ndeviations: []\nblocked_reason: \"\" # only if blocked\n\\`\\`\\`\n\n## Constraints\n\n- Do NOT modify files outside the task scope\n- Do NOT refactor unrelated code\n- Do NOT add features not in the specification\n- Do NOT introduce security vulnerabilities`;\n\n// Build user prompt with context\nlet userPrompt = `## Current Task\n\n**Task ID**: ${data.task_id}\n**Task Number**: T${data.current_task_number}\n\n\\`\\`\\`\n${data.current_task}\n\\`\\`\\`\n\n## Specification Summary\n\n${specSummary}\n\n## Implementation Plan Summary\n\n${planSummary}`;\n\n// Add feedback if this is a retry\nif (data.feedback) {\n  userPrompt += `\\n\\n## Feedback to Address\\n\\nThis is a retry. Please address the following feedback:\\n\\n${data.feedback}`;\n}\n\nuserPrompt += `\\n\\n---\\n\\nPlease implement this task. Create the necessary code changes, commits, and PR. End your response with the YAML status block.`;\n\nreturn [{\n  json: {\n    task_id: data.task_id,\n    current_task_number: data.current_task_number,\n    prompt: userPrompt,\n    system_prompt: systemPrompt,\n    agent_role: 'dev'\n  }\n}];"
+      },
+      "id": "code_build_prompt",
+      "name": "Build Implementation Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "notes": "T073-T074: Dev Agent prompt with context management"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.AGENT_RUNNER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_agent_runner",
+      "name": "Call Agent Runner",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [1560, 300],
+      "notes": "T075: Call Agent Runner with agent_role=dev"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T076: Parse PR URL and commit SHA from agent output\nconst agentResponse = $input.first().json;\nconst previousData = $('Build Implementation Prompt').first().json;\n\nif (!agentResponse.success) {\n  throw new Error(`Agent Runner failed: ${agentResponse.error || 'Unknown error'}`);\n}\n\nconst output = agentResponse.output || '';\n\n// Parse YAML block from end of output\nlet status = 'error';\nlet prUrl = null;\nlet branch = null;\nlet commits = [];\nlet summary = '';\nlet deviations = [];\nlet blockedReason = null;\n\nconst yamlMatch = output.match(/```yaml\\n([\\s\\S]*?)```\\s*$/);\nif (yamlMatch) {\n  const yamlContent = yamlMatch[1];\n  \n  // Parse status\n  const statusMatch = yamlContent.match(/status:\\s*(\\S+)/);\n  if (statusMatch) {\n    status = statusMatch[1].replace(/[\"']/g, '');\n  }\n  \n  // Parse PR URL\n  const prMatch = yamlContent.match(/pr_url:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n  if (prMatch) {\n    prUrl = prMatch[1];\n  }\n  \n  // Parse branch\n  const branchMatch = yamlContent.match(/branch:\\s*[\"']?([^\\s\\n\"']+)[\"']?/);\n  if (branchMatch) {\n    branch = branchMatch[1];\n  }\n  \n  // Parse commits (simplified)\n  const commitMatches = yamlContent.matchAll(/sha:\\s*[\"']?([^\\s\\n\"']+)[\"']?/g);\n  for (const match of commitMatches) {\n    commits.push({ sha: match[1] });\n  }\n  \n  // Parse summary\n  const summaryMatch = yamlContent.match(/summary:\\s*\\|?\\n?\\s*([^\\n]+)/);\n  if (summaryMatch) {\n    summary = summaryMatch[1].trim();\n  }\n  \n  // Parse blocked reason\n  const blockedMatch = yamlContent.match(/blocked_reason:\\s*[\"']?([^\\n]+)[\"']?/);\n  if (blockedMatch && blockedMatch[1].trim()) {\n    blockedReason = blockedMatch[1].trim();\n  }\n}\n\nreturn [{\n  json: {\n    task_id: previousData.task_id,\n    current_task_number: previousData.current_task_number,\n    status,\n    pr_url: prUrl,\n    branch,\n    commits,\n    summary,\n    deviations,\n    blocked_reason: blockedReason,\n    raw_output: output\n  }\n}];"
+      },
+      "id": "code_parse_output",
+      "name": "Parse Implementation Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "notes": "T076: Parse PR URL and commits from output"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "outputKey": "success",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.status }}", "rightValue": "success", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "blocked",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.status }}", "rightValue": "blocked", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            },
+            {
+              "outputKey": "error",
+              "conditions": {
+                "conditions": [
+                  { "leftValue": "={{ $json.status }}", "rightValue": "error", "operator": { "type": "string", "operation": "equals" } }
+                ]
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "error"
+        }
+      },
+      "id": "switch_status",
+      "name": "Route by Status",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [2000, 300],
+      "notes": "Route based on implementation status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T077: Prepare task envelope update with PR info\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    operation: 'read',\n    task_id: data.task_id,\n    pr_url: data.pr_url,\n    branch: data.branch,\n    commits: data.commits,\n    summary: data.summary,\n    current_task_number: data.current_task_number\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_read",
+      "name": "Prepare Envelope Read",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 200],
+      "notes": "T077: Read envelope for update"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_read_envelope",
+      "name": "Read Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2440, 200],
+      "notes": "Read current task envelope"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T077: Update task envelope with PR info\nconst readResult = $input.first().json;\nconst updateData = $('Prepare Envelope Read').first().json;\n\nif (!readResult.success) {\n  throw new Error(`Failed to read task envelope: ${readResult.error || 'Unknown error'}`);\n}\n\nconst envelope = readResult.task_envelope;\nconst now = new Date().toISOString();\n\n// Update implementation phase with PR info\nenvelope.phases.implementation = {\n  ...envelope.phases.implementation,\n  status: 'in_progress',\n  current_task: updateData.current_task_number,\n  pr_url: updateData.pr_url,\n  branch: updateData.branch,\n  commits: [...(envelope.phases.implementation?.commits || []), ...updateData.commits.map(c => c.sha)]\n};\n\nenvelope.version = (envelope.version || 1) + 1;\n\nreturn [{\n  json: {\n    operation: 'update',\n    task_id: updateData.task_id,\n    task_envelope: envelope\n  }\n}];"
+      },
+      "id": "code_prepare_envelope_update",
+      "name": "Prepare Envelope Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 200],
+      "notes": "T077: Update envelope with PR info"
+    },
+    {
+      "parameters": {
+        "workflowId": "={{ $env.BLOB_STATE_MANAGER_WORKFLOW_ID }}",
+        "options": {}
+      },
+      "id": "call_blob_update_envelope",
+      "name": "Update Task Envelope",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [2880, 200],
+      "notes": "T077: Update envelope via Blob State Manager"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return success result\nconst updateData = $('Prepare Envelope Read').first().json;\n\nreturn [{\n  json: {\n    success: true,\n    task_id: updateData.task_id,\n    status: 'success',\n    pr_url: updateData.pr_url,\n    branch: updateData.branch,\n    commits: updateData.commits,\n    summary: updateData.summary\n  }\n}];"
+      },
+      "id": "code_return_success",
+      "name": "Return Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 200],
+      "notes": "Return success with PR info"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T078: Handle blocked status - escalate to human\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    status: 'blocked',\n    blocked_reason: data.blocked_reason,\n    needs_human: true\n  }\n}];"
+      },
+      "id": "code_return_blocked",
+      "name": "Return Blocked",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300],
+      "notes": "T078: Handle blocked status"
+    },
+    {
+      "parameters": {
+        "jsCode": "// T078: Handle error status\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: data.task_id,\n    status: 'error',\n    error: data.raw_output?.substring(0, 500) || 'Implementation failed'\n  }\n}];"
+      },
+      "id": "code_return_error",
+      "name": "Return Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 400],
+      "notes": "T078: Handle error status"
+    },
+    {
+      "parameters": {},
+      "id": "error_trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [240, 500],
+      "notes": "Catch workflow errors"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Handle workflow errors\nconst error = $input.first().json;\nconst inputData = $('Sub-Workflow Trigger').first().json;\n\nreturn [{\n  json: {\n    success: false,\n    task_id: inputData?.task_id || 'unknown',\n    status: 'error',\n    error: error.message || 'Unknown error in Dev Implementation workflow'\n  }\n}];"
+      },
+      "id": "code_handle_error",
+      "name": "Handle Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 600]
+    }
+  ],
+  "connections": {
+    "Sub-Workflow Trigger": {
+      "main": [
+        [{ "node": "Prepare Downloads", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Downloads": {
+      "main": [
+        [
+          { "node": "Extract Spec Request", "type": "main", "index": 0 },
+          { "node": "Extract Plan Request", "type": "main", "index": 0 },
+          { "node": "Extract Tasks Request", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Extract Spec Request": {
+      "main": [
+        [{ "node": "Download spec.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Plan Request": {
+      "main": [
+        [{ "node": "Download plan.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Extract Tasks Request": {
+      "main": [
+        [{ "node": "Download tasks.md", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download spec.md": {
+      "main": [
+        [{ "node": "Merge Downloads", "type": "main", "index": 0 }]
+      ]
+    },
+    "Download plan.md": {
+      "main": [
+        [{ "node": "Merge Downloads", "type": "main", "index": 1 }]
+      ]
+    },
+    "Download tasks.md": {
+      "main": [
+        [{ "node": "Merge Downloads", "type": "main", "index": 2 }]
+      ]
+    },
+    "Merge Downloads": {
+      "main": [
+        [{ "node": "Parse Current Task", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Current Task": {
+      "main": [
+        [{ "node": "Build Implementation Prompt", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Implementation Prompt": {
+      "main": [
+        [{ "node": "Call Agent Runner", "type": "main", "index": 0 }]
+      ]
+    },
+    "Call Agent Runner": {
+      "main": [
+        [{ "node": "Parse Implementation Output", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Implementation Output": {
+      "main": [
+        [{ "node": "Route by Status", "type": "main", "index": 0 }]
+      ]
+    },
+    "Route by Status": {
+      "main": [
+        [{ "node": "Prepare Envelope Read", "type": "main", "index": 0 }],
+        [{ "node": "Return Blocked", "type": "main", "index": 0 }],
+        [{ "node": "Return Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Read": {
+      "main": [
+        [{ "node": "Read Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Read Task Envelope": {
+      "main": [
+        [{ "node": "Prepare Envelope Update", "type": "main", "index": 0 }]
+      ]
+    },
+    "Prepare Envelope Update": {
+      "main": [
+        [{ "node": "Update Task Envelope", "type": "main", "index": 0 }]
+      ]
+    },
+    "Update Task Envelope": {
+      "main": [
+        [{ "node": "Return Success", "type": "main", "index": 0 }]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [{ "node": "Handle Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "any",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "stage-3" },
+    { "name": "dev-agent" },
+    { "name": "autonomous-agents" }
+  ],
+  "pinData": {},
+  "meta": {
+    "templateId": "dev-implementation",
+    "instanceId": "autonomous-dev-team"
+  }
+}

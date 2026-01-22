@@ -18,6 +18,9 @@ export interface Config {
     accountName: string;
     connectionString?: string;
   };
+  teams?: {
+    webhookUrl: string;
+  };
   healthPollIntervalMs: number;
 }
 
@@ -34,6 +37,8 @@ function getEnvOrDefault(key: string, defaultValue: string): string {
 }
 
 export function loadConfig(): Config {
+  const teamsWebhookUrl = process.env['TEAMS_WEBHOOK_URL'];
+
   return {
     port: parseInt(getEnvOrDefault('PORT', '3000'), 10),
     azureAd: {
@@ -57,6 +62,7 @@ export function loadConfig(): Config {
       accountName: getEnvOrDefault('AZURE_STORAGE_ACCOUNT', 'iiusagentstore'),
       connectionString: process.env['AZURE_STORAGE_CONNECTION_STRING'],
     },
+    teams: teamsWebhookUrl ? { webhookUrl: teamsWebhookUrl } : undefined,
     healthPollIntervalMs: parseInt(
       getEnvOrDefault('HEALTH_POLL_INTERVAL_MS', '30000'),
       10

@@ -1,0 +1,266 @@
+openapi: 3.0.3
+info:
+  title: Dashboard Authentication API
+  description: API endpoints for Claude API token management and expiration tracking
+  version: 1.0.0
+  contact:
+    name: II-US Development Team
+    url: https://ii-us.com
+
+servers:
+  - url: https://ops-dashboard.ii-us.com/api
+    description: Production dashboard API
+  - url: http://localhost:3001/api
+    description: Local development
+
+tags:
+  - name: auth
+    description: Authentication and token management
+
+paths:
+  /auth/status:
+    get:
+      summary: Get current authentication token status
+      description: |
+        Returns the current status of Claude API authentication tokens, including:
+        - Authentication method (session vs long-lived)
+        - Token expiration timestamp (for session tokens)
+        - Last refresh timestamp
+        - Authentication errors (if any)
+
+        This endpoint is polled every 60 seconds by the Token Refresh panel to
+        maintain accurate countdown timers.
+
+        **Note**: This endpoint reads from the Kubernetes secret mounted at
+        `~/.claude/` in the claude-agent pod to determine token status.
+      operationId: getTokenStatus
+      tags:
+        - auth
+      responses:
+        '200':
+          description: Token status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenStatus'
+              examples:
+                sessionToken:
+                  summary: Session token (will expire)
+                  value:
+                    authenticated: true
+                    method: 'session'
+                    expiresAt: '2026-01-21T10:00:00Z'
+                    lastRefreshed: '2026-01-21T08:30:00Z'
+                longLivedToken:
+                  summary: Long-lived token (no expiration)
+                  value:
+                    authenticated: true
+                    method: 'long-lived'
+                unauthenticated:
+                  summary: Not authenticated
+                  value:
+                    authenticated: false
+                    method: 'session'
+                    error: 'Token expired at 2026-01-21T08:00:00Z'
+        '500':
+          description: Internal server error (failed to read Kubernetes secret)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Internal Server Error'
+                message: 'Failed to read authentication secret from Kubernetes'
+                statusCode: 500
+
+  /auth/refresh:
+    post:
+      summary: Update authentication token
+      description: |
+        Updates the Claude API authentication token in the Kubernetes secret.
+        This endpoint is called when an operator manually refreshes their token
+        via the Session Refresh tab in the dashboard.
+
+        **Process**:
+        1. Validates new token format
+        2. Updates Kubernetes secret `claude-session` in `claude-agent` namespace
+        3. Triggers rolling restart of claude-agent deployment
+        4. Verifies new token works with test Claude API call
+
+        **Note**: This operation triggers a pod restart which takes ~30 seconds.
+      operationId: refreshToken
+      tags:
+        - auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+            example:
+              sessionToken: 'sk-ant-session-...'
+              method: 'session'
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshTokenResponse'
+              example:
+                success: true
+                message: 'Token refreshed successfully. Agent restart initiated.'
+                method: 'session'
+                expiresAt: '2026-01-21T16:00:00Z'
+                restartStatus: 'initiated'
+        '400':
+          description: Invalid token format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Bad Request'
+                message: 'Invalid session token format. Expected sk-ant-session-...'
+                statusCode: 400
+        '500':
+          description: Internal server error (Kubernetes API failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                error: 'Internal Server Error'
+                message: 'Failed to update Kubernetes secret'
+                statusCode: 500
+                details:
+                  k8sError: 'Secret update failed: unauthorized'
+
+components:
+  schemas:
+    TokenStatus:
+      type: object
+      required:
+        - authenticated
+        - method
+      properties:
+        authenticated:
+          type: boolean
+          description: Whether Claude API token is valid and authenticated
+          example: true
+        method:
+          type: string
+          enum:
+            - session
+            - long-lived
+          description: Authentication method used
+        expiresAt:
+          type: string
+          format: date-time
+          description: |
+            ISO 8601 timestamp when token expires. Only present for session tokens.
+            Undefined for long-lived tokens (they never expire).
+          example: '2026-01-21T10:00:00Z'
+        lastRefreshed:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamp of last token refresh
+          example: '2026-01-21T08:30:00Z'
+        error:
+          type: string
+          description: Error message if authentication failed
+          example: 'Token expired at 2026-01-21T08:00:00Z'
+
+    RefreshTokenRequest:
+      type: object
+      required:
+        - sessionToken
+        - method
+      properties:
+        sessionToken:
+          type: string
+          description: |
+            New Claude API session token in format: sk-ant-session-...
+            This value is obtained from claude.ai after running `claude login`.
+          minLength: 20
+          example: 'sk-ant-session-01JKQR...'
+        method:
+          type: string
+          enum:
+            - session
+            - long-lived
+          description: Token type being uploaded
+          default: 'session'
+
+    RefreshTokenResponse:
+      type: object
+      required:
+        - success
+        - message
+        - method
+        - restartStatus
+      properties:
+        success:
+          type: boolean
+          description: Whether token refresh succeeded
+          example: true
+        message:
+          type: string
+          description: Human-readable status message
+          example: 'Token refreshed successfully. Agent restart initiated.'
+        method:
+          type: string
+          enum:
+            - session
+            - long-lived
+          description: Token type that was uploaded
+        expiresAt:
+          type: string
+          format: date-time
+          description: Expiration timestamp for session tokens (undefined for long-lived)
+          example: '2026-01-21T16:00:00Z'
+        restartStatus:
+          type: string
+          enum:
+            - initiated
+            - completed
+            - failed
+          description: Status of the claude-agent pod restart
+
+    ApiError:
+      type: object
+      required:
+        - error
+        - message
+        - statusCode
+      properties:
+        error:
+          type: string
+          description: Error type
+          example: 'Bad Request'
+        message:
+          type: string
+          description: Human-readable error message
+          example: 'Invalid session token format'
+        statusCode:
+          type: integer
+          description: HTTP status code
+          example: 400
+        details:
+          type: object
+          description: Optional additional error details
+          additionalProperties: true
+
+  securitySchemes:
+    azureAD:
+      type: oauth2
+      description: Azure AD OAuth2 authentication
+      flows:
+        authorizationCode:
+          authorizationUrl: https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/authorize
+          tokenUrl: https://login.microsoftonline.com/{tenant-id}/oauth2/v2.0/token
+          scopes:
+            api://dashboard/.default: Default access scope
+
+security:
+  - azureAD: []
