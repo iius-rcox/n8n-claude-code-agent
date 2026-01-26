@@ -1,0 +1,60 @@
+Codemap Update Report
+=====================
+Generated: 2026-01-26
+
+Status: INITIAL CREATION
+Previous Version: None
+Change Percentage: N/A (new files)
+
+Files Created:
+--------------
+codemaps/architecture.md  - Overall system architecture
+codemaps/backend.md       - Backend API structure
+codemaps/frontend.md      - Frontend React structure
+codemaps/data.md          - Data models and schemas
+
+Summary:
+--------
+- 4 codemap files created
+- No previous version to compare
+- All files include freshness timestamps
+
+Components Documented:
+----------------------
+Architecture:
+  - System overview diagram
+  - Directory structure
+  - Technology stack
+  - Service communication
+  - Authentication flow
+  - Security hardening
+
+Backend:
+  - Module structure
+  - API endpoints (8 routes)
+  - Service dependencies
+  - Configuration schema
+  - Exit code mapping
+  - Middleware chain
+
+Frontend:
+  - Module structure
+  - Component hierarchy
+  - 7 key components documented
+  - Authentication flow
+  - MSAL configuration
+  - State management approach
+  - Build configuration
+
+Data Models:
+  - ExecutionRecord/Request/Response
+  - PodHealth, CronJobInfo, JobInfo
+  - HealthStatus, AuthStatus
+  - RefreshStatus with steps
+  - API response patterns
+  - Validation rules
+
+Next Update:
+------------
+Run /everything-claude-code:update-codemaps after significant changes.
+Changes >30% will require user approval.
